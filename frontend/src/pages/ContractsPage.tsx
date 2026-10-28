@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
   FileSignature,
@@ -96,10 +96,10 @@ export const ContractsPage: React.FC = () => {
   const [deductionAmount, setDeductionAmount] = useState<number>(0);
   const [deductionReason, setDeductionReason] = useState('Nghiệm thu bàn giao phòng nguyên vẹn');
 
-  const { data: allContracts = [], isLoading } = useGetContractsQuery();
-  const { data: apartments = [] } = useGetApartmentsQuery({});
-  const { data: tenants = [] } = useGetTenantsQuery();
-  const { data: deposits = [] } = useGetDepositsQuery();
+  const { data: allContracts = [], isLoading } = useGetContractsQuery(undefined, { pollingInterval: 3000 });
+  const { data: apartments = [] } = useGetApartmentsQuery({}, { pollingInterval: 4000 });
+  const { data: tenants = [] } = useGetTenantsQuery(undefined, { pollingInterval: 4000 });
+  const { data: deposits = [] } = useGetDepositsQuery(undefined, { pollingInterval: 3000 });
 
   const [createContract, { isLoading: isCreating }] = useCreateContractMutation();
   const [createTenant] = useCreateTenantMutation();
@@ -144,9 +144,14 @@ export const ContractsPage: React.FC = () => {
     { id: 'TERMINATED', label: 'Đã thanh lý', count: terminatedContractsCount },
   ];
 
+  // Sắp xếp hợp đồng mới nhất lên đầu tiên (ID giảm dần)
+  const sortedContracts = useMemo(() => {
+    return [...allContracts].sort((a, b) => b.id - a.id);
+  }, [allContracts]);
+
   const contractsByStatus = selectedStatus
-    ? allContracts.filter((c) => c.status === selectedStatus)
-    : allContracts;
+    ? sortedContracts.filter((c) => c.status === selectedStatus)
+    : sortedContracts;
 
   useEffect(() => {
     if (searchParams.get('action') === 'create') {
@@ -211,8 +216,7 @@ export const ContractsPage: React.FC = () => {
         if (matched && tenantName.trim() && !isSamePersonName(matched.fullName, tenantName.trim())) {
           setContractErrors((prev) => ({
             ...prev,
-            tenantCitizenId: `Số CCCD này đã thuộc về khách thuê "${matched.fullName}". Không thể lập hợp đồng cho người khác tên!`,
-            tenantName: `Tên khách không khớp với chủ sở hữu CCCD (${matched.fullName})`,
+            tenantCitizenId: 'Số cccd đã tồn tại ! ',
           }));
         }
       }
@@ -254,8 +258,7 @@ export const ContractsPage: React.FC = () => {
         // Kiểm tra trùng CCCD nhưng khác họ tên
         const matchedCccd = tenants.find((t) => t.citizenId === tenantCitizenId.trim());
         if (matchedCccd && !isSamePersonName(matchedCccd.fullName, tenantName.trim())) {
-          errors.tenantCitizenId = `Số CCCD này đã thuộc về khách thuê "${matchedCccd.fullName}". Không thể lập hợp đồng cho người khác tên!`;
-          errors.tenantName = `Tên khách thuê không khớp với chủ sở hữu CCCD (${matchedCccd.fullName})`;
+          errors.tenantCitizenId = 'Số cccd đã tồn tại ! ';
         }
       }
       if (!tenantPhone.trim()) {
@@ -308,11 +311,10 @@ export const ContractsPage: React.FC = () => {
           if (!isSamePersonName(matchedCccd.fullName, tenantName.trim())) {
             toast.error(
               'Xung đột định danh CCCD',
-              `Số CCCD ${tenantCitizenId.trim()} đã thuộc về "${matchedCccd.fullName}". Không thể lập hợp đồng cho người khác tên!`
+              'Số cccd đã tồn tại ! '
             );
             setContractErrors({
-              tenantCitizenId: `Số CCCD này đã thuộc về khách thuê "${matchedCccd.fullName}". Không thể lập hợp đồng cho người khác tên!`,
-              tenantName: `Tên khách không khớp với chủ sở hữu CCCD (${matchedCccd.fullName})`,
+              tenantCitizenId: 'Số cccd đã tồn tại ! ',
             });
             return;
           }
@@ -362,12 +364,10 @@ export const ContractsPage: React.FC = () => {
       );
       handleCloseCreateModal();
 
-      // Tự động thoát trang lập hợp đồng khi tạo thành công
-      if (searchParams.get('from') === 'bookings' || searchParams.get('customerName')) {
-        navigate('/admin/bookings', { replace: true });
-      } else {
-        navigate('/admin/contracts', { replace: true });
-      }
+      // Chuyển hướng về bảng Hợp đồng & Tiền cọc và đưa về trang 1 để người dùng thấy ngay hợp đồng vừa tạo
+      navigate('/admin/contracts', { replace: true });
+      setCurrentPage(1);
+      setSelectedStatus(undefined);
     } catch (err: any) {
       const parsed = parseApiError(err, 'Không thể tạo hợp đồng');
       setContractErrors({ general: parsed.message, ...parsed.fieldErrors });
@@ -771,7 +771,7 @@ export const ContractsPage: React.FC = () => {
                         </button>
 
                         {/* Approval for DRAFT */}
-                        {c.status === 'DRAFT' && (
+                        {c.status === 'DRAFT' && (isAdmin || isStaff) && (
                           <button
                             onClick={() => handleApprove(contractItem)}
                             className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-1 ${
@@ -995,8 +995,7 @@ export const ContractsPage: React.FC = () => {
                     if (matched && !isSamePersonName(matched.fullName, tenantName.trim())) {
                       setContractErrors((prev) => ({
                         ...prev,
-                        tenantCitizenId: `Số CCCD này đã thuộc về khách thuê "${matched.fullName}". Không thể lập hợp đồng cho người khác tên!`,
-                        tenantName: `Tên không khớp với chủ sở hữu CCCD (${matched.fullName})`,
+                        tenantCitizenId: 'Số cccd đã tồn tại ! ',
                       }));
                     }
                   }

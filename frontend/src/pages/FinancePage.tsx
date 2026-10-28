@@ -35,9 +35,11 @@ import { useGetContractsQuery } from '../modules/contracts/services/contractApi'
 import { IReceivable, ReceivableStatus, IPayment } from '../types';
 import { formatCurrency, formatDate } from '../utils/formatters';
 import { useToast } from '../hooks/useToast';
+import { useAuth } from '../hooks/useAuth';
 import { parseApiError } from '../utils/errorHandler';
 
 export const FinancePage: React.FC = () => {
+  const { isAdmin, isAccountant, isStaff } = useAuth();
   const currentNow = new Date();
   const [activeTab, setActiveTab] = useState<'RECEIVABLES' | 'DEBT_LEDGER' | 'PAYMENTS'>('RECEIVABLES');
   const [selectedStatus, setSelectedStatus] = useState<ReceivableStatus | undefined>(undefined);
@@ -160,15 +162,21 @@ export const FinancePage: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          <Button
-            variant="primary"
-            size="sm"
-            leftIcon={<RefreshCw className={`w-3.5 h-3.5 ${isGenerating ? 'animate-spin' : ''}`} />}
-            isLoading={isGenerating}
-            onClick={handleGenerateMonthly}
-          >
-            Sinh Hóa Đơn T{billingMonth > 0 ? billingMonth : (currentNow.getMonth() + 1)}/{billingYear}
-          </Button>
+          {(isAdmin || isAccountant) ? (
+            <Button
+              variant="primary"
+              size="sm"
+              leftIcon={<RefreshCw className={`w-3.5 h-3.5 ${isGenerating ? 'animate-spin' : ''}`} />}
+              isLoading={isGenerating}
+              onClick={handleGenerateMonthly}
+            >
+              Sinh Hóa Đơn T{billingMonth > 0 ? billingMonth : (currentNow.getMonth() + 1)}/{billingYear}
+            </Button>
+          ) : (
+            <span className="text-xs font-semibold px-2.5 py-1 bg-slate-100 text-slate-600 rounded-lg border border-slate-200">
+              Chế độ Tra Cứu Hóa Đơn & Sổ Nợ
+            </span>
+          )}
         </div>
       </div>
 
@@ -365,17 +373,19 @@ export const FinancePage: React.FC = () => {
                                   <span>VietQR</span>
                                 </button>
 
-                                <button
-                                  onClick={() => {
-                                    setCashPaymentReceivable(r);
-                                    setCashAmount(r.remainingDebt);
-                                  }}
-                                  className="flex items-center gap-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-colors shadow-xs"
-                                  title="Ghi nhận nộp tiền mặt"
-                                >
-                                  <DollarSign className="w-3.5 h-3.5" />
-                                  <span>Thu Tiền Mặt</span>
-                                </button>
+                                {(isAdmin || isAccountant) && (
+                                  <button
+                                    onClick={() => {
+                                      setCashPaymentReceivable(r);
+                                      setCashAmount(r.remainingDebt);
+                                    }}
+                                    className="flex items-center gap-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-colors shadow-xs"
+                                    title="Ghi nhận nộp tiền mặt"
+                                  >
+                                    <DollarSign className="w-3.5 h-3.5" />
+                                    <span>Thu Tiền Mặt</span>
+                                  </button>
+                                )}
                               </>
                             )}
 

@@ -3,11 +3,11 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutGrid,
   Building2,
-  Users,
+  CalendarCheck,
   FileText,
+  Users,
   CreditCard,
   Wrench,
-  CalendarCheck,
   AlertTriangle,
   LogOut,
 } from 'lucide-react';
@@ -32,109 +32,50 @@ export const AdminSidebar: React.FC = () => {
     navigate('/login');
   };
 
-  const navItems = isAccountant
-    ? [
-        {
-          to: '/admin/dashboard',
-          label: 'Thống kê & Tổng quan',
-          icon: <LayoutGrid className="w-5 h-5" />,
-        },
-        {
-          to: '/admin/finance',
-          label: 'Thanh toán & Công nợ',
-          icon: <CreditCard className="w-5 h-5" />,
-        },
-        {
-          to: '/admin/contracts',
-          label: 'Hợp đồng & Tiền cọc',
-          icon: <FileText className="w-5 h-5" />,
-        },
-        {
-          to: '/admin/tenants',
-          label: 'Khách thuê & Sổ nợ',
-          icon: <Users className="w-5 h-5" />,
-        },
-        {
-          to: '/admin/alerts',
-          label: 'Cảnh báo nợ quá hạn',
-          icon: <AlertTriangle className="w-5 h-5" />,
-        },
-      ]
-    : isStaff
-    ? [
-        {
-          to: '/admin/buildings',
-          label: 'Căn hộ & Tòa nhà',
-          icon: <Building2 className="w-5 h-5" />,
-        },
-        {
-          to: '/admin/bookings',
-          label: 'Đặt lịch & Giữ chỗ',
-          icon: <CalendarCheck className="w-5 h-5" />,
-        },
-        {
-          to: '/admin/tenants',
-          label: 'Khách thuê & Liên hệ',
-          icon: <Users className="w-5 h-5" />,
-        },
-        {
-          to: '/admin/contracts',
-          label: 'Hợp đồng & Tiền cọc',
-          icon: <FileText className="w-5 h-5" />,
-        },
-        {
-          to: '/admin/maintenance',
-          label: 'Yêu cầu bảo trì',
-          icon: <Wrench className="w-5 h-5" />,
-        },
-        {
-          to: '/admin/alerts',
-          label: 'Cảnh báo hết hạn HĐ',
-          icon: <AlertTriangle className="w-5 h-5" />,
-        },
-      ]
-    : [
-        {
-          to: '/admin/dashboard',
-          label: 'Thống kê & Tổng quan',
-          icon: <LayoutGrid className="w-5 h-5" />,
-        },
-        {
-          to: '/admin/buildings',
-          label: 'Căn hộ & Tòa nhà',
-          icon: <Building2 className="w-5 h-5" />,
-        },
-        {
-          to: '/admin/bookings',
-          label: 'Đặt lịch & Giữ chỗ',
-          icon: <CalendarCheck className="w-5 h-5" />,
-        },
-        {
-          to: '/admin/tenants',
-          label: 'Khách thuê & Liên hệ',
-          icon: <Users className="w-5 h-5" />,
-        },
-        {
-          to: '/admin/contracts',
-          label: 'Hợp đồng & Tiền cọc',
-          icon: <FileText className="w-5 h-5" />,
-        },
-        {
-          to: '/admin/finance',
-          label: 'Thanh toán & Công nợ',
-          icon: <CreditCard className="w-5 h-5" />,
-        },
-        {
-          to: '/admin/maintenance',
-          label: 'Yêu cầu bảo trì',
-          icon: <Wrench className="w-5 h-5" />,
-        },
-        {
-          to: '/admin/alerts',
-          label: 'Cảnh báo quá hạn & HĐ',
-          icon: <AlertTriangle className="w-5 h-5" />,
-        },
-      ];
+  // Danh sách đầy đủ 8 chức năng chuẩn của Trang Quản Trị Hệ Thống
+  // "Hợp đồng & Tiền cọc" nằm ngay phía trên "Khách thuê & Liên hệ"
+  const navItems = [
+    {
+      to: '/admin/dashboard',
+      label: 'Thống kê & Tổng quan',
+      icon: <LayoutGrid className="w-5 h-5" />,
+    },
+    {
+      to: '/admin/buildings',
+      label: 'Căn hộ & Tòa nhà',
+      icon: <Building2 className="w-5 h-5" />,
+    },
+    {
+      to: '/admin/bookings',
+      label: 'Đặt lịch & Giữ chỗ',
+      icon: <CalendarCheck className="w-5 h-5" />,
+    },
+    {
+      to: '/admin/tenants',
+      label: 'Khách thuê & Liên hệ',
+      icon: <Users className="w-5 h-5" />,
+    },
+    {
+      to: '/admin/contracts',
+      label: 'Hợp đồng & Tiền cọc',
+      icon: <FileText className="w-5 h-5" />,
+    },
+    {
+      to: '/admin/finance',
+      label: 'Thanh toán & Công nợ',
+      icon: <CreditCard className="w-5 h-5" />,
+    },
+    {
+      to: '/admin/maintenance',
+      label: 'Yêu cầu bảo trì',
+      icon: <Wrench className="w-5 h-5" />,
+    },
+    {
+      to: '/admin/alerts',
+      label: 'Cảnh báo quá hạn & HĐ',
+      icon: <AlertTriangle className="w-5 h-5" />,
+    },
+  ];
 
   return (
     <aside
@@ -152,7 +93,6 @@ export const AdminSidebar: React.FC = () => {
             showSubtitles={false}
           />
         </div>
-
 
         {/* Navigation links list */}
         <nav className="p-3 space-y-1.5 overflow-y-auto flex-1">

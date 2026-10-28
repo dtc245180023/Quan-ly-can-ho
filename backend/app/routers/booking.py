@@ -117,7 +117,7 @@ def create_booking(
 def get_bookings(
     db: Session = Depends(get_db),
     current_user: User = Depends(
-        require_roles("ADMIN", "STAFF")
+        require_roles("ADMIN", "STAFF", "ACCOUNTANT")
     )
 ):
 
@@ -175,7 +175,7 @@ def get_booking(
     booking_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(
-        require_roles("ADMIN", "STAFF")
+        require_roles("ADMIN", "STAFF", "ACCOUNTANT")
     )
 ):
 

@@ -379,6 +379,7 @@ def get_receivable_vietqr(
     current_user: User = Depends(
         require_roles(
             "ADMIN",
+            "STAFF",
             "ACCOUNTANT",
             "TENANT"
         )

@@ -30,9 +30,11 @@ import { useGetApartmentsQuery } from '../modules/buildings/services/buildingApi
 import { IMaintenanceRequest, MaintenancePriority, MaintenanceStatus } from '../types';
 import { formatCurrency, formatDate } from '../utils/formatters';
 import { useToast } from '../hooks/useToast';
+import { useAuth } from '../hooks/useAuth';
 import { parseApiError } from '../utils/errorHandler';
 
 export const MaintenancePage: React.FC = () => {
+  const { isAdmin, isStaff, isAccountant } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const urlStatus = (searchParams.get('status') as MaintenanceStatus) || undefined;
   const urlSearch = searchParams.get('search') || '';
@@ -271,14 +273,21 @@ export const MaintenancePage: React.FC = () => {
           </p>
         </div>
 
-        <Button
-          variant="primary"
-          size="sm"
-          leftIcon={<Plus className="w-3.5 h-3.5" />}
-          onClick={handleOpenCreateModal}
-        >
-          Tạo Phiếu Báo Hỏng
-        </Button>
+        {(isAdmin || isStaff) && (
+          <Button
+            variant="primary"
+            size="sm"
+            leftIcon={<Plus className="w-3.5 h-3.5" />}
+            onClick={handleOpenCreateModal}
+          >
+            Tạo Phiếu Báo Hỏng
+          </Button>
+        )}
+        {isAccountant && (
+          <span className="text-xs font-semibold px-2.5 py-1 bg-slate-100 text-slate-600 rounded-lg border border-slate-200">
+            Theo Dõi Chi Phí Sửa Chữa (Chỉ Xem)
+          </span>
+        )}
       </div>
 
       {/* Filter and Search */}
@@ -451,7 +460,7 @@ export const MaintenancePage: React.FC = () => {
               </span>
 
               <div className="flex items-center gap-1.5">
-                {t.status === 'PENDING' && (
+                {(isAdmin || isStaff) && t.status === 'PENDING' && (
                   <Button
                     size="sm"
                     variant="primary"
@@ -462,7 +471,7 @@ export const MaintenancePage: React.FC = () => {
                   </Button>
                 )}
 
-                {t.status === 'IN_PROGRESS' && (
+                {(isAdmin || isStaff) && t.status === 'IN_PROGRESS' && (
                   <Button
                     size="sm"
                     variant="success"

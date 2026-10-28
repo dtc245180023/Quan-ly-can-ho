@@ -43,6 +43,7 @@ def get_debt_ledgers(
     current_user: User = Depends(
         require_roles(
             "ADMIN",
+            "STAFF",
             "ACCOUNTANT"
         )
     )

@@ -112,8 +112,7 @@ export const TenantsPage: React.FC = () => {
         if (matched && fullName.trim() && !isSamePersonName(matched.fullName, fullName.trim())) {
           setCreateErrors((prev) => ({
             ...prev,
-            citizenId: `Số CCCD này đã thuộc về khách thuê "${matched.fullName}". Không thể tạo hồ sơ cho người khác tên!`,
-            fullName: `Tên không khớp với chủ sở hữu CCCD (${matched.fullName})`,
+            citizenId: 'Số cccd đã tồn tại ! ',
           }));
         }
       }
@@ -142,8 +141,7 @@ export const TenantsPage: React.FC = () => {
     } else {
       const matched = tenants.find((t) => t.citizenId === citizenId.trim());
       if (matched && !isSamePersonName(matched.fullName, fullName.trim())) {
-        errors.citizenId = `Số CCCD này đã thuộc về khách thuê "${matched.fullName}". Không thể tạo hồ sơ cho người khác tên!`;
-        errors.fullName = `Tên không khớp với chủ sở hữu CCCD (${matched.fullName})`;
+        errors.citizenId = 'Số cccd đã tồn tại ! ';
       }
     }
 
@@ -676,8 +674,7 @@ export const TenantsPage: React.FC = () => {
                 if (matched && !isSamePersonName(matched.fullName, fullName.trim())) {
                   setCreateErrors((prev) => ({
                     ...prev,
-                    citizenId: `Số CCCD này đã thuộc về khách thuê "${matched.fullName}". Không thể tạo hồ sơ cho người khác tên!`,
-                    fullName: `Tên không khớp với chủ sở hữu CCCD (${matched.fullName})`,
+                    citizenId: 'Số cccd đã tồn tại ! ',
                   }));
                 }
               }

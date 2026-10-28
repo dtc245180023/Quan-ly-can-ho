@@ -56,7 +56,7 @@ def create_tenant(
         if not is_same_person(existing_by_cccd.full_name, data.full_name):
             raise HTTPException(
                 status_code=400,
-                detail=f"Số CCCD {data.citizen_id} đã thuộc về khách thuê '{existing_by_cccd.full_name}'. Không thể tạo hoặc lập hợp đồng cho người khác tên ('{data.full_name}') trùng CCCD!"
+                detail="Số cccd đã tồn tại ! "
             )
         # Nếu cùng một người -> Cập nhật thông tin liên hệ mới nhất
         if data.phone:

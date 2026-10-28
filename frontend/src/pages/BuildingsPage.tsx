@@ -37,10 +37,12 @@ import {
 import { ApartmentStatus, IApartment } from '../types';
 import { formatCurrency } from '../utils/formatters';
 import { useToast } from '../hooks/useToast';
+import { useAuth } from '../hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import { parseApiError } from '../utils/errorHandler';
 
 export const BuildingsPage: React.FC = () => {
+  const { isAdmin, isStaff, isAccountant } = useAuth();
   const [selectedBuildingId, setSelectedBuildingId] = useState<number | undefined>(undefined);
   const [selectedStatus, setSelectedStatus] = useState<ApartmentStatus | undefined>(undefined);
   const [searchQuery, setSearchQuery] = useState('');
@@ -236,14 +238,30 @@ export const BuildingsPage: React.FC = () => {
           </div>
         </div>
 
-        <Button
-          variant="primary"
-          size="sm"
-          leftIcon={<Plus className="w-3.5 h-3.5" />}
-          onClick={handleOpenAddModal}
-        >
-          Thêm Căn Hộ Mới
-        </Button>
+        {(isAdmin || isStaff) && (
+          <Button
+            variant="primary"
+            size="sm"
+            leftIcon={<Plus className="w-3.5 h-3.5" />}
+            onClick={handleOpenAddModal}
+          >
+            Thêm Căn Hộ Mới
+          </Button>
+        )}
+        {isAccountant && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold px-2.5 py-1 bg-slate-100 text-slate-600 rounded-lg border border-slate-200">
+              Chế độ Tra Cứu (Chỉ Xem)
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigate('/admin/finance')}
+            >
+              Đến Sổ Thu Phí & Công Nợ
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Filters & Search Toolbar */}
@@ -526,7 +544,7 @@ export const BuildingsPage: React.FC = () => {
               Trang Chi Tiết Căn Hộ
             </Button>
             <div className="flex items-center gap-2">
-              {selectedApartmentForInfo?.status === 'AVAILABLE' && (
+              {(isAdmin || isStaff) && selectedApartmentForInfo?.status === 'AVAILABLE' && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -540,7 +558,7 @@ export const BuildingsPage: React.FC = () => {
                   Báo Bảo Trì
                 </Button>
               )}
-              {selectedApartmentForInfo?.status === 'MAINTENANCE' && (
+              {(isAdmin || isStaff) && selectedApartmentForInfo?.status === 'MAINTENANCE' && (
                 <Button
                   variant="primary"
                   size="sm"
@@ -554,17 +572,32 @@ export const BuildingsPage: React.FC = () => {
                   Hoàn Tất Bảo Trì
                 </Button>
               )}
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => {
-                  if (selectedApartmentForInfo) {
-                    navigate(`/admin/contracts?action=create&aptId=${selectedApartmentForInfo.id}`);
-                  }
-                }}
-              >
-                Lập Hợp Đồng Thuê
-              </Button>
+              {(isAdmin || isStaff) && (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => {
+                    if (selectedApartmentForInfo) {
+                      navigate(`/admin/contracts?action=create&aptId=${selectedApartmentForInfo.id}`);
+                    }
+                  }}
+                >
+                  Lập Hợp Đồng Thuê
+                </Button>
+              )}
+              {isAccountant && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (selectedApartmentForInfo) {
+                      navigate(`/admin/finance?search=${encodeURIComponent(selectedApartmentForInfo.roomNumber)}`);
+                    }
+                  }}
+                >
+                  Xem Thu Phí Phòng Này
+                </Button>
+              )}
               <Button variant="ghost" size="sm" onClick={() => setIsBuildingInfoModalOpen(false)}>
                 Đóng
               </Button>

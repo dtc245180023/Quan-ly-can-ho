@@ -31,9 +31,11 @@ import { useGetApartmentsQuery } from '../modules/buildings/services/buildingApi
 import { IBooking, BookingStatus } from '../types';
 import { formatCurrency, formatDate } from '../utils/formatters';
 import { useToast } from '../hooks/useToast';
+import { useAuth } from '../hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 
 export const BookingsPage: React.FC = () => {
+  const { isAdmin, isStaff, isAccountant } = useAuth();
   const [selectedStatus, setSelectedStatus] = useState<BookingStatus | undefined>(undefined);
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -162,15 +164,22 @@ export const BookingsPage: React.FC = () => {
           </p>
         </div>
 
-        <Button
-          variant="primary"
-          size="md"
-          className="h-11 px-5 text-sm font-bold shadow-xs shrink-0"
-          leftIcon={<Plus className="w-4 h-4" />}
-          onClick={() => setIsCreateModalOpen(true)}
-        >
-          Tạo Đặt Phòng Mới
-        </Button>
+        {(isAdmin || isStaff) && (
+          <Button
+            variant="primary"
+            size="md"
+            className="h-11 px-5 text-sm font-bold shadow-xs shrink-0"
+            leftIcon={<Plus className="w-4 h-4" />}
+            onClick={() => setIsCreateModalOpen(true)}
+          >
+            Tạo Đặt Phòng Mới
+          </Button>
+        )}
+        {isAccountant && (
+          <span className="text-xs font-semibold px-3 py-2 bg-slate-100 text-slate-600 rounded-xl border border-slate-200">
+            Theo Dõi Cọc Giữ Chỗ (Chỉ Xem)
+          </span>
+        )}
       </div>
 
       {/* 4 Metric Cards Row (Matching Image 2 ERP style) */}
@@ -309,26 +318,28 @@ export const BookingsPage: React.FC = () => {
             </div>
 
             {/* Actions */}
-            <div className="flex items-center gap-2.5 shrink-0 self-start lg:self-center">
-              <Button
-                variant="primary"
-                size="md"
-                className="h-10 bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-xs whitespace-nowrap px-4"
-                leftIcon={<CheckCircle2 className="w-4 h-4" />}
-                onClick={() => handleStatusChange(latestPendingBooking.id, 'CONFIRMED')}
-              >
-                Xác Nhận Giữ Chỗ
-              </Button>
-              <Button
-                variant="secondary"
-                size="md"
-                className="h-10 bg-white hover:bg-slate-50 text-slate-800 border-slate-300 font-bold whitespace-nowrap px-4"
-                leftIcon={<FileSignature className="w-4 h-4 text-brand-600" />}
-                onClick={() => handleConvertToContract(latestPendingBooking)}
-              >
-                Lập Hợp Đồng
-              </Button>
-            </div>
+            {(isAdmin || isStaff) && (
+              <div className="flex items-center gap-2.5 shrink-0 self-start lg:self-center">
+                <Button
+                  variant="primary"
+                  size="md"
+                  className="h-10 bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-xs whitespace-nowrap px-4"
+                  leftIcon={<CheckCircle2 className="w-4 h-4" />}
+                  onClick={() => handleStatusChange(latestPendingBooking.id, 'CONFIRMED')}
+                >
+                  Xác Nhận Giữ Chỗ
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="md"
+                  className="h-10 bg-white hover:bg-slate-50 text-slate-800 border-slate-300 font-bold whitespace-nowrap px-4"
+                  leftIcon={<FileSignature className="w-4 h-4 text-brand-600" />}
+                  onClick={() => handleConvertToContract(latestPendingBooking)}
+                >
+                  Lập Hợp Đồng
+                </Button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -474,7 +485,7 @@ export const BookingsPage: React.FC = () => {
 
                   <td className="px-6 py-4.5 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      {b.status === 'PENDING' && (
+                      {(isAdmin || isStaff) && b.status === 'PENDING' && (
                         <button
                           onClick={() => handleStatusChange(b.id, 'CONFIRMED')}
                           className="h-9 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 rounded-xl text-xs shadow-xs transition-colors"
@@ -483,7 +494,7 @@ export const BookingsPage: React.FC = () => {
                         </button>
                       )}
 
-                      {b.status === 'CONFIRMED' && (
+                      {(isAdmin || isStaff) && b.status === 'CONFIRMED' && (
                         <button
                           onClick={() => handleConvertToContract(b)}
                           className="h-9 flex items-center gap-1.5 bg-brand-600 hover:bg-brand-700 text-white px-4 rounded-xl text-xs font-bold shadow-xs transition-colors"
