@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Sparkles, Home, DollarSign, Compass, ArrowRight, RefreshCw, Loader2, Bot } from 'lucide-react';
 import { Modal } from '../common/Modal';
 import { Button } from '../common/Button';
@@ -16,6 +16,12 @@ interface AIRoomMatcherModalProps {
   onSelectApartment: (apt: IApartment) => void;
 }
 
+type AIRecommendationResult = Array<{
+  apartment: IApartment;
+  reason: string;
+  matchScore: number;
+}>;
+
 export const AIRoomMatcherModal: React.FC<AIRoomMatcherModalProps> = ({
   isOpen,
   onClose,
@@ -28,192 +34,220 @@ export const AIRoomMatcherModal: React.FC<AIRoomMatcherModalProps> = ({
 
   const [recommendApartmentsAI] = useRecommendApartmentsAIMutation();
   const [isLoading, setIsLoading] = useState<boolean>(true);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [aiResults, setAiResults] = useState<AIRecommendationResult | null>(null);
+
+  // Client-side cache: lưu kết quả theo key `${budgetMax}-${bedrooms}-${view}`
+  const cacheRef = useRef<Map<string, AIRecommendationResult>>(new Map());
   const activeRequestIdRef = useRef<number>(0);
-  const [aiResults, setAiResults] = useState<
-    Array<{
-      apartment: IApartment;
-      reason: string;
-      matchScore: number;
-    }> | null
-  >(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeMutationRef = useRef<{ abort: () => void } | null>(null);
 
-  const fetchAiRecommendations = async (
-    targetBudget = budgetMax,
-    targetBedrooms = bedrooms,
-    targetView = view
-  ) => {
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    const reqId = ++activeRequestIdRef.current;
-
-    // 1. Lập tức xóa kết quả cũ và hiển thị loading AI chuyên nghiệp
-    setAiResults(null);
-    setIsLoading(true);
-
-    const startTime = Date.now();
-
-    // Timeout an toàn 5s nếu mạng chập chờn
-    timeoutRef.current = setTimeout(() => {
-      if (reqId === activeRequestIdRef.current) {
-        fallbackToClientEngine(targetBudget, targetBedrooms, targetView);
-      }
-    }, 5000);
-
-    try {
-      // 2. Gọi mutation lên backend AI endpoint
-      const res = await recommendApartmentsAI({
-        max_budget: targetBudget,
+  const fallbackToClientEngine = useCallback(
+    (targetBudget: number, targetBedrooms: number, targetView: string) => {
+      const rawFallback = matchApartmentsWithAI(apartments, {
+        budgetMax: targetBudget,
         bedrooms: targetBedrooms,
         view: targetView,
-        occupants: Math.max(1, targetBedrooms),
-        min_area: targetBedrooms === 1 ? 25 : targetBedrooms === 2 ? 45 : 70,
-        amenities: [],
-      }).unwrap();
+      }).map((r) => {
+        let score = r.matchScore;
+        if (r.apartment.roomNumber === 'B602' && targetBedrooms === 2) {
+          score = 98;
+        } else if (r.apartment.bedrooms === targetBedrooms) {
+          score = Math.max(score, 96);
+        }
+        return {
+          apartment: r.apartment,
+          reason: r.aiHighlight,
+          matchScore: score,
+        };
+      });
 
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      if (reqId !== activeRequestIdRef.current) return;
+      const bedroomMatches = rawFallback.filter((item) => item.apartment.bedrooms === targetBedrooms);
+      const finalFallback = bedroomMatches.length > 0 ? bedroomMatches : rawFallback;
 
-      // Giữ loading tối thiểu 700ms - 1.2s để người dùng cảm nhận rõ AI đang phân tích
-      const elapsed = Date.now() - startTime;
-      if (elapsed < 800) {
-        await new Promise((resolve) => setTimeout(resolve, 800 - elapsed));
-      }
-      if (reqId !== activeRequestIdRef.current) return;
+      finalFallback.sort((a, b) => {
+        if (a.apartment.roomNumber === 'B602' && targetBedrooms === 2) return -1;
+        if (b.apartment.roomNumber === 'B602' && targetBedrooms === 2) return 1;
+        return b.matchScore - a.matchScore;
+      });
 
-      if (res && res.length > 0) {
-        const mapped = res.map((item, idx) => {
-          const existing = (apartments || []).find((a) => a.id === item.apartment_id);
-          const baseApt: IApartment = existing || {
-            id: item.apartment_id,
-            buildingId: item.building_id,
-            buildingName: 'Tòa nhà Dwell',
-            roomNumber: item.room_number,
-            floor: 1,
-            areaSqm: Number(item.area_sqm),
-            price: Number(item.price),
-            depositDefault: Number(item.price),
-            maxOccupants: item.max_occupants || (item.bedrooms ? item.bedrooms * 2 : targetBedrooms * 2),
-            currentOccupants: 0,
-            status: 'AVAILABLE' as const,
-            bedrooms: item.bedrooms ?? targetBedrooms,
-            bathrooms: item.bathrooms ?? 1,
-            viewDirection: item.view_direction ?? targetView,
-            description: item.reason,
-            imageUrl: 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=800&q=80',
-            amenities: (item.amenities || []).map((name, i) => ({
-              id: i + 1,
-              apartmentId: item.apartment_id,
-              name,
-              brand: 'Dwell Standard',
-              conditionStatus: 'GOOD' as const,
-              category: 'FURNITURE' as const,
-            })),
-            createdAt: new Date().toISOString(),
-          };
+      const cacheKey = `${targetBudget}-${targetBedrooms}-${targetView}`;
+      cacheRef.current.set(cacheKey, finalFallback);
+      setAiResults(finalFallback);
+    },
+    [apartments]
+  );
 
-          const apt: IApartment = {
-            ...baseApt,
-            areaSqm: item.area_sqm != null ? Number(item.area_sqm) : baseApt.areaSqm,
-            price: item.price != null ? Number(item.price) : baseApt.price,
-            bedrooms: item.bedrooms ?? baseApt.bedrooms,
-            bathrooms: item.bathrooms ?? baseApt.bathrooms,
-            viewDirection: item.view_direction ?? baseApt.viewDirection,
-          };
+  const fetchAiRecommendations = useCallback(
+    async (
+      targetBudget = budgetMax,
+      targetBedrooms = bedrooms,
+      targetView = view,
+      forceRefresh = false
+    ) => {
+      const cacheKey = `${targetBudget}-${targetBedrooms}-${targetView}`;
 
-          // Chấm điểm chuẩn xác:
-          // Nếu là căn B602 hoặc căn khớp đúng số PN yêu cầu, đảm bảo 95% - 99%
-          let score = item.match_score ?? Math.max(85, 95 - idx * 3);
-          if (apt.roomNumber === 'B602' && targetBedrooms === 2) {
-            score = 98;
-          } else if (apt.bedrooms === targetBedrooms) {
-            score = Math.max(score, 96);
-          }
-
-          return {
-            apartment: apt,
-            reason: item.reason,
-            matchScore: score,
-          };
-        });
-
-        // Ưu tiên hiển thị căn khớp chính xác số phòng ngủ
-        const bedroomMatches = mapped.filter((item) => item.apartment.bedrooms === targetBedrooms);
-        const finalResults = bedroomMatches.length > 0 ? bedroomMatches : mapped;
-
-        // Sắp xếp: căn B602 (khi chọn 2 PN) hoặc căn có điểm cao nhất đứng đầu tuyệt đối
-        finalResults.sort((a, b) => {
-          if (a.apartment.roomNumber === 'B602' && targetBedrooms === 2) return -1;
-          if (b.apartment.roomNumber === 'B602' && targetBedrooms === 2) return 1;
-          return b.matchScore - a.matchScore;
-        });
-
-        setAiResults(finalResults);
-      } else {
-        fallbackToClientEngine(targetBudget, targetBedrooms, targetView);
-      }
-    } catch (err) {
-      console.warn('Lỗi kết nối AI backend, chuyển sang thuật toán dự phòng:', err);
-      const elapsed = Date.now() - startTime;
-      if (elapsed < 800) {
-        await new Promise((resolve) => setTimeout(resolve, 800 - elapsed));
-      }
-      if (reqId === activeRequestIdRef.current) {
-        // Chỉ dùng clientFallback khi API thực sự gặp lỗi mạng (catch error)
-        fallbackToClientEngine(targetBudget, targetBedrooms, targetView);
-      }
-    } finally {
-      if (reqId === activeRequestIdRef.current) {
+      // 0ms Cache Hit: Trả ngay kết quả không cần gọi mạng
+      if (!forceRefresh && cacheRef.current.has(cacheKey)) {
+        setAiResults(cacheRef.current.get(cacheKey)!);
         setIsLoading(false);
+        return;
       }
-    }
-  };
 
-  const fallbackToClientEngine = (
-    targetBudget: number,
-    targetBedrooms: number,
-    targetView: string
-  ) => {
-    const rawFallback = matchApartmentsWithAI(apartments, {
-      budgetMax: targetBudget,
-      bedrooms: targetBedrooms,
-      view: targetView,
-    }).map((r) => {
-      let score = r.matchScore;
-      if (r.apartment.roomNumber === 'B602' && targetBedrooms === 2) {
-        score = 98;
-      } else if (r.apartment.bedrooms === targetBedrooms) {
-        score = Math.max(score, 96);
+      // Hủy request cũ đang chờ nếu có (AbortController)
+      if (activeMutationRef.current) {
+        activeMutationRef.current.abort();
+        activeMutationRef.current = null;
       }
-      return {
-        apartment: r.apartment,
-        reason: r.aiHighlight,
-        matchScore: score,
-      };
-    });
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
 
-    const bedroomMatches = rawFallback.filter((item) => item.apartment.bedrooms === targetBedrooms);
-    const finalFallback = bedroomMatches.length > 0 ? bedroomMatches : rawFallback;
+      const reqId = ++activeRequestIdRef.current;
+      setAiResults(null);
+      setIsLoading(true);
 
-    finalFallback.sort((a, b) => {
-      if (a.apartment.roomNumber === 'B602' && targetBedrooms === 2) return -1;
-      if (b.apartment.roomNumber === 'B602' && targetBedrooms === 2) return 1;
-      return b.matchScore - a.matchScore;
-    });
+      // Timeout an toàn 5s nếu mạng chập chờn
+      timeoutRef.current = setTimeout(() => {
+        if (reqId === activeRequestIdRef.current) {
+          fallbackToClientEngine(targetBudget, targetBedrooms, targetView);
+        }
+      }, 5000);
 
-    setAiResults(finalFallback);
-  };
+      try {
+        const mutationPromise = recommendApartmentsAI({
+          max_budget: targetBudget,
+          bedrooms: targetBedrooms,
+          view: targetView,
+          occupants: Math.max(1, targetBedrooms),
+          min_area: targetBedrooms === 1 ? 25 : targetBedrooms === 2 ? 45 : 70,
+          amenities: [],
+        });
+        activeMutationRef.current = mutationPromise;
 
+        const res = await mutationPromise.unwrap();
+
+        if (timeoutRef.current) clearTimeout(timeoutRef.current);
+        if (reqId !== activeRequestIdRef.current) return;
+
+        if (res && res.length > 0) {
+          const mapped = res.map((item, idx) => {
+            const existing = (apartments || []).find((a) => a.id === item.apartment_id);
+            const baseApt: IApartment = existing || {
+              id: item.apartment_id,
+              buildingId: item.building_id,
+              buildingName: 'Tòa nhà Dwell',
+              roomNumber: item.room_number,
+              floor: 1,
+              areaSqm: Number(item.area_sqm),
+              price: Number(item.price),
+              depositDefault: Number(item.price),
+              maxOccupants: item.max_occupants || (item.bedrooms ? item.bedrooms * 2 : targetBedrooms * 2),
+              currentOccupants: 0,
+              status: 'AVAILABLE' as const,
+              bedrooms: item.bedrooms ?? targetBedrooms,
+              bathrooms: item.bathrooms ?? 1,
+              viewDirection: item.view_direction ?? targetView,
+              description: item.reason,
+              imageUrl: 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=800&q=80',
+              amenities: (item.amenities || []).map((name, i) => ({
+                id: i + 1,
+                apartmentId: item.apartment_id,
+                name,
+                brand: 'Dwell Standard',
+                conditionStatus: 'GOOD' as const,
+                category: 'FURNITURE' as const,
+              })),
+              createdAt: new Date().toISOString(),
+            };
+
+            const apt: IApartment = {
+              ...baseApt,
+              areaSqm: item.area_sqm != null ? Number(item.area_sqm) : baseApt.areaSqm,
+              price: item.price != null ? Number(item.price) : baseApt.price,
+              bedrooms: item.bedrooms ?? baseApt.bedrooms,
+              bathrooms: item.bathrooms ?? baseApt.bathrooms,
+              viewDirection: item.view_direction ?? baseApt.viewDirection,
+            };
+
+            // Chấm điểm chuẩn xác:
+            let score = item.match_score ?? Math.max(85, 95 - idx * 3);
+            if (apt.roomNumber === 'B602' && targetBedrooms === 2) {
+              score = 98;
+            } else if (apt.bedrooms === targetBedrooms) {
+              score = Math.max(score, 96);
+            }
+
+            return {
+              apartment: apt,
+              reason: item.reason,
+              matchScore: score,
+            };
+          });
+
+          // Ưu tiên hiển thị căn khớp chính xác số phòng ngủ
+          const bedroomMatches = mapped.filter((item) => item.apartment.bedrooms === targetBedrooms);
+          const finalResults = bedroomMatches.length > 0 ? bedroomMatches : mapped;
+
+          // Sắp xếp: căn B602 (khi chọn 2 PN) hoặc căn có điểm cao nhất đứng đầu tuyệt đối
+          finalResults.sort((a, b) => {
+            if (a.apartment.roomNumber === 'B602' && targetBedrooms === 2) return -1;
+            if (b.apartment.roomNumber === 'B602' && targetBedrooms === 2) return 1;
+            return b.matchScore - a.matchScore;
+          });
+
+          // Lưu cache client để tái sử dụng ngay lập tức
+          cacheRef.current.set(cacheKey, finalResults);
+          setAiResults(finalResults);
+        } else {
+          fallbackToClientEngine(targetBudget, targetBedrooms, targetView);
+        }
+      } catch (err: any) {
+        // Bỏ qua nếu bị abort do request mới
+        if (err?.name === 'AbortError' || err?.message?.includes('aborted')) {
+          return;
+        }
+        console.warn('Lỗi kết nối AI backend, chuyển sang thuật toán dự phòng:', err);
+        if (reqId === activeRequestIdRef.current) {
+          fallbackToClientEngine(targetBudget, targetBedrooms, targetView);
+        }
+      } finally {
+        if (reqId === activeRequestIdRef.current) {
+          setIsLoading(false);
+        }
+      }
+    },
+    [apartments, budgetMax, bedrooms, view, recommendApartmentsAI, fallbackToClientEngine]
+  );
+
+  // Dọn dẹp listener và abort request khi unmount
   useEffect(() => {
     return () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      if (activeMutationRef.current) {
+        activeMutationRef.current.abort();
+      }
     };
   }, []);
 
+  // Debounce 150ms khi thay đổi bộ lọc hoặc mở modal
   useEffect(() => {
-    if (isOpen) {
-      fetchAiRecommendations(budgetMax, bedrooms, view);
+    if (!isOpen) return;
+
+    const cacheKey = `${budgetMax}-${bedrooms}-${view}`;
+    if (cacheRef.current.has(cacheKey)) {
+      setAiResults(cacheRef.current.get(cacheKey)!);
+      setIsLoading(false);
+      return;
     }
-  }, [isOpen, budgetMax, bedrooms, view]);
+
+    setIsLoading(true);
+    const debounceTimer = setTimeout(() => {
+      fetchAiRecommendations(budgetMax, bedrooms, view);
+    }, 150);
+
+    return () => {
+      clearTimeout(debounceTimer);
+    };
+  }, [isOpen, budgetMax, bedrooms, view, fetchAiRecommendations]);
 
   return (
     <Modal
@@ -248,12 +282,7 @@ export const AIRoomMatcherModal: React.FC<AIRoomMatcherModalProps> = ({
             </label>
             <select
               value={budgetMax}
-              onChange={(e) => {
-                const val = Number(e.target.value);
-                setBudgetMax(val);
-                setAiResults(null);
-                setIsLoading(true);
-              }}
+              onChange={(e) => setBudgetMax(Number(e.target.value))}
               className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 outline-none focus:border-purple-500 transition-colors cursor-pointer"
             >
               <option value={8000000}>Dưới 8.000.000 ₫</option>
@@ -271,12 +300,7 @@ export const AIRoomMatcherModal: React.FC<AIRoomMatcherModalProps> = ({
             </label>
             <select
               value={bedrooms}
-              onChange={(e) => {
-                const val = Number(e.target.value);
-                setBedrooms(val);
-                setAiResults(null);
-                setIsLoading(true);
-              }}
+              onChange={(e) => setBedrooms(Number(e.target.value))}
               className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 outline-none focus:border-purple-500 transition-colors cursor-pointer"
             >
               <option value={1}>Studio / 1 Phòng ngủ</option>
@@ -292,12 +316,7 @@ export const AIRoomMatcherModal: React.FC<AIRoomMatcherModalProps> = ({
             </label>
             <select
               value={view}
-              onChange={(e) => {
-                const val = e.target.value;
-                setView(val);
-                setAiResults(null);
-                setIsLoading(true);
-              }}
+              onChange={(e) => setView(e.target.value)}
               className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 outline-none focus:border-purple-500 transition-colors cursor-pointer"
             >
               <option value="Đông Nam">Hướng Đông Nam (Mát mẻ)</option>
@@ -321,7 +340,7 @@ export const AIRoomMatcherModal: React.FC<AIRoomMatcherModalProps> = ({
             </div>
             <button
               type="button"
-              onClick={() => fetchAiRecommendations(budgetMax, bedrooms, view)}
+              onClick={() => fetchAiRecommendations(budgetMax, bedrooms, view, true)}
               disabled={isLoading}
               className="text-xs text-brand-600 hover:text-brand-700 font-semibold inline-flex items-center gap-1 disabled:opacity-50 transition-opacity"
             >

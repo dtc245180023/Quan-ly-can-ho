@@ -13,6 +13,7 @@ from app.models.amenity import Amenity
 from app.database import get_db
 
 import re
+import time
 from datetime import datetime
 
 from app.models.contract import Contract
@@ -63,6 +64,9 @@ _contract_summary_cache: dict[int, dict] = {}
 _contract_file_summary_cache: dict[str, dict] = {}
 _alert_draft_cache: dict[tuple, str] = {}
 _rag_response_cache: dict[str, dict] = {}
+_recommend_cache: dict[str, list[dict]] = {}
+_recommend_cache_ttl: dict[str, float] = {}
+_RECOMMEND_CACHE_TTL_SEC: float = 300.0  # 5 phút (300 giây) cache Turbo
 
 
 def invalidate_contract_summary_cache(contract_id: int | None = None):
@@ -76,6 +80,12 @@ def invalidate_contract_summary_cache(contract_id: int | None = None):
 def invalidate_rag_cache():
     """Xóa cache câu trả lời RAG khi cơ sở tri thức được nạp mới, xóa hoặc đồng bộ"""
     _rag_response_cache.clear()
+
+
+def invalidate_recommend_cache():
+    """Xóa cache gợi ý căn hộ khi dữ liệu căn hộ hoặc tiện ích thay đổi"""
+    _recommend_cache.clear()
+    _recommend_cache_ttl.clear()
 
 
 def _safe_dt(val):
@@ -1083,12 +1093,12 @@ def _generate_personalized_reason(
 def _generate_ai_recommendation_reasons(
     candidates_data: list[dict],
     req: ApartmentRecommendRequest,
-    timeout_sec: float = 3.0
+    timeout_sec: float = 1.0
 ) -> dict[str, str]:
     """
     Tích hợp gọi Gemini AI thật (model gemini-3.5-flash-lite) để phân tích
     và sinh nhận định AI chuyên sâu, thông minh cho các căn hộ phù hợp nhất.
-    Có try/except và fallback thông minh nếu Gemini timeout > 3s hoặc gặp sự cố mạng.
+    Có try/except và fallback thông minh nếu Gemini timeout > 1.0s hoặc gặp sự cố mạng.
     """
     if not candidates_data:
         return {}
@@ -1210,6 +1220,15 @@ def recommend_apartments(
         )
 
     # ==========================================
+    # 1b. In-Memory Cache Turbo (< 1ms)
+    # ==========================================
+    cache_key = f"{data.max_budget}_{data.bedrooms}_{data.view}_{data.occupants}_{data.building_id}"
+    if cache_key in _recommend_cache:
+        cached_time = _recommend_cache_ttl.get(cache_key, 0)
+        if time.time() - cached_time < _RECOMMEND_CACHE_TTL_SEC:
+            return _recommend_cache[cache_key]
+
+    # ==========================================
     # 2. Backend lọc căn hộ thật trong DB
     # ==========================================
     base_query = db.query(Apartment).filter(
@@ -1223,6 +1242,8 @@ def recommend_apartments(
 
     all_available = base_query.all()
     if not all_available:
+        _recommend_cache[cache_key] = []
+        _recommend_cache_ttl[cache_key] = time.time()
         return []
 
     # ==========================================
@@ -1269,6 +1290,8 @@ def recommend_apartments(
             })
 
     if not candidates:
+        _recommend_cache[cache_key] = []
+        _recommend_cache_ttl[cache_key] = time.time()
         return []
 
     # ==========================================
@@ -1322,7 +1345,7 @@ def recommend_apartments(
     # 5. Tích hợp Gemini AI thật sự (gemini-3.5-flash-lite)
     # để phân tích và sinh nhận định AI chuyên sâu, thông minh
     # ==========================================
-    ai_reasons_map = _generate_ai_recommendation_reasons(top_candidates, data, timeout_sec=3.0)
+    ai_reasons_map = _generate_ai_recommendation_reasons(top_candidates, data, timeout_sec=1.0)
 
     results = []
     for c in top_candidates:
@@ -1352,6 +1375,10 @@ def recommend_apartments(
             "reason": final_reason,
             "match_score": c["match_score"]
         })
+
+    # Lưu kết quả cuối cùng vào _recommend_cache để truy vấn kế tiếp tức thì (< 1ms)
+    _recommend_cache[cache_key] = results
+    _recommend_cache_ttl[cache_key] = time.time()
 
     return results
 

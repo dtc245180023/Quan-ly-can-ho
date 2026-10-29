@@ -442,3 +442,50 @@ def test_chatbot_monthly_revenue_breakdown():
     assert "Hóa đơn phát sinh kỳ Tháng 9:" in ans9
     assert "Tổng doanh thu thực thu lũy kế (toàn hệ thống):" in ans9
 
+
+def test_apartment_recommend_cache_turbo():
+    """Kiểm tra In-Memory Cache Turbo của endpoint /api/v1/ai/apartments/recommend:
+    - Lần 1: Tính toán và lưu cache
+    - Lần 2: Trả về tức thì từ cache (< 1ms)
+    - Invalidate: Xóa cache thành công
+    """
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.routers.ai import _recommend_cache, invalidate_recommend_cache
+    import time
+
+    invalidate_recommend_cache()
+    client = TestClient(app)
+
+    payload = {
+        "max_budget": 15000000,
+        "bedrooms": 2,
+        "view": "Công Viên",
+        "occupants": 2,
+        "building_id": None,
+        "amenities": []
+    }
+
+    # Lần 1: Gọi API
+    res1 = client.post("/api/v1/ai/apartments/recommend", json=payload)
+    assert res1.status_code == 200
+    data1 = res1.json()
+
+    # Kiểm tra key có trong cache
+    cache_key = f"{payload['max_budget']}_{payload['bedrooms']}_{payload['view']}_{payload['occupants']}_{payload['building_id']}"
+    assert cache_key in _recommend_cache
+
+    # Lần 2: Gọi lại cùng payload - đo thời gian phản hồi cache
+    t0 = time.perf_counter()
+    res2 = client.post("/api/v1/ai/apartments/recommend", json=payload)
+    duration = time.perf_counter() - t0
+
+    assert res2.status_code == 200
+    assert res2.json() == data1
+    assert duration < 0.05, f"Cache phản hồi quá lâu: {duration:.4f}s"
+
+    # Kiểm tra hàm invalidate_recommend_cache
+    invalidate_recommend_cache()
+    assert cache_key not in _recommend_cache
+
+
