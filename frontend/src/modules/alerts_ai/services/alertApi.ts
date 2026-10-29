@@ -128,14 +128,21 @@ export const alertApi = baseApi.injectEndpoints({
           aiDraftContent: {
             scenario: promptOptions.scenario || 'OVERDUE_WITH_PENALTY',
             tone: promptOptions.tone || 'EMPATHETIC',
-            subject: res.email_subject || `Thông báo căn ${promptOptions.roomNumber || 'P101'}`,
+            subject:
+              res.email_subject ||
+              (promptOptions.scenario === 'CONTRACT_RENEWAL'
+                ? `Thông báo gia hạn hợp đồng thuê căn hộ ${promptOptions.roomNumber || 'P101'}`
+                : promptOptions.scenario === 'SERVICE_SUSPENSION_WARNING'
+                ? `Cảnh báo tạm ngưng dịch vụ căn hộ ${promptOptions.roomNumber || 'P101'}`
+                : promptOptions.scenario === 'FRIENDLY_REMINDER'
+                ? `Nhắc phí kỳ thanh toán căn hộ ${promptOptions.roomNumber || 'P101'}`
+                : `Thông báo nhắc thanh toán tiền phòng & dịch vụ căn ${promptOptions.roomNumber || 'P101'}`),
             body: bodyText,
             generatedAt: new Date().toISOString(),
           },
           createdAt: new Date().toISOString(),
         };
       },
-      invalidatesTags: [{ type: 'Alert', id: 'LIST' }],
     }),
   }),
   overrideExisting: true,
