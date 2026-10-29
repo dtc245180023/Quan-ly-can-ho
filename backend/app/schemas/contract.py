@@ -16,6 +16,7 @@ class ContractCreate(BaseModel):
 
     rental_price: Decimal
     deposit_amount: Decimal
+    booking_id: int | None = None
 
 
 # ==========================================

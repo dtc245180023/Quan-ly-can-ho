@@ -2,7 +2,6 @@ import React from 'react';
 import { Outlet } from 'react-router-dom';
 import { AdminSidebar } from './AdminSidebar';
 import { AdminHeader } from './AdminHeader';
-import { FloatingAIChatbot } from '../ai/FloatingAIChatbot';
 
 export const AdminLayout: React.FC = () => {
   return (
@@ -17,9 +16,6 @@ export const AdminLayout: React.FC = () => {
         <main className="flex-1 p-5 sm:p-6 lg:p-8 w-full max-w-full">
           <Outlet />
         </main>
-
-        {/* Global Floating AI Chatbot */}
-        <FloatingAIChatbot />
       </div>
     </div>
   );

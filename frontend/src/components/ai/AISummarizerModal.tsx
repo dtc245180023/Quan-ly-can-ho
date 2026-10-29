@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Sparkles,
   FileText,
@@ -12,12 +12,14 @@ import {
   Receipt,
   Scale,
   LogOut,
+  RefreshCw,
 } from 'lucide-react';
 import { Modal } from '../common/Modal';
 import { Button } from '../common/Button';
 import { AIBotLogo } from '../common/AIBotLogo';
 import { IContract } from '../../types';
 import { useToast } from '../../hooks/useToast';
+import { useSummarizeContractAIMutation } from '../../modules/contracts/services/contractApi';
 
 interface AISummarizerModalProps {
   isOpen: boolean;
@@ -31,9 +33,32 @@ export const AISummarizerModal: React.FC<AISummarizerModalProps> = ({
   contract,
 }) => {
   const [copied, setCopied] = useState(false);
+  const [liveSummary, setLiveSummary] = useState<any>(null);
+  const [summarizeContractAI, { isLoading: isSummarizing }] = useSummarizeContractAIMutation();
   const toast = useToast();
 
-  const { aiSummary } = contract;
+  const handleFetchSummary = async () => {
+    if (!contract?.id) return;
+    try {
+      const res = await summarizeContractAI({ contractId: contract.id }).unwrap();
+      const data = res.ai_summary || res;
+      setLiveSummary(data);
+      toast.success('Đã tóm tắt AI', 'Đã trích xuất thành công 5 điều khoản cốt lõi từ hợp đồng!');
+    } catch {
+      toast.error('Lỗi', 'Không thể gọi AI tóm tắt hợp đồng lúc này, đang dùng bản lưu sẵn');
+    }
+  };
+
+  useEffect(() => {
+    if (isOpen && contract?.id) {
+      handleFetchSummary();
+    } else if (!isOpen) {
+      setLiveSummary(null);
+    }
+  }, [isOpen, contract?.id]);
+
+  const activeSummary = liveSummary || contract.aiSummary;
+  const confidence = activeSummary?.confidenceScore || (activeSummary?.confidence_score ? Math.round(activeSummary.confidence_score * 100) : 99.4);
 
   const terms = [
     {
@@ -41,35 +66,35 @@ export const AISummarizerModal: React.FC<AISummarizerModalProps> = ({
       title: 'Thời Hạn Hợp Đồng & Quy Định Gia Hạn',
       clauseRef: 'Điều 2 • Trang 2',
       icon: <Clock className="w-4 h-4 text-blue-600" />,
-      content: aiSummary.term1_duration,
+      content: activeSummary?.term1_duration || 'Đang phân tích thời hạn hợp đồng...',
     },
     {
       num: '02',
-      title: 'Giá Thuê & Tiền Cọc Bảo Đảm',
+      title: 'Giá Thuê Căn Hộ & Phương Thức Thanh Toán',
       clauseRef: 'Điều 3 • Trang 3',
       icon: <DollarSign className="w-4 h-4 text-emerald-600" />,
-      content: aiSummary.term2_rentalPrice,
+      content: activeSummary?.term2_rental_price || activeSummary?.term2_rentalPrice || 'Đang phân tích mức giá thuê...',
     },
     {
       num: '03',
-      title: 'Nghĩa Vụ Thanh Toán & Phí Dịch Vụ Kèm Theo',
-      clauseRef: 'Điều 4 & 5 • Trang 4',
+      title: 'Tiền Cọc Bảo Đảm & Điều Kiện Hoàn Trả',
+      clauseRef: 'Điều 4 • Trang 4',
       icon: <Receipt className="w-4 h-4 text-indigo-600" />,
-      content: aiSummary.term3_paymentObligation,
+      content: activeSummary?.term3_deposit || activeSummary?.term3_paymentObligation || 'Đang phân tích tiền cọc...',
     },
     {
       num: '04',
-      title: 'Phạt Chậm Trả & Chế Tài Vi Phạm',
-      clauseRef: 'Điều 8 • Trang 6',
+      title: 'Kỳ Hạn Thanh Toán & Phạt Chậm Nộp',
+      clauseRef: 'Điều 5 & 8 • Trang 5',
       icon: <Scale className="w-4 h-4 text-rose-600" />,
-      content: aiSummary.term4_penalties,
+      content: activeSummary?.term4_payment_obligations || activeSummary?.term4_penalties || 'Đang phân tích nghĩa vụ thanh toán...',
     },
     {
       num: '05',
       title: 'Điều Kiện Chấm Dứt HĐ & Bàn Giao Phòng',
       clauseRef: 'Điều 11 • Trang 8',
       icon: <LogOut className="w-4 h-4 text-amber-600" />,
-      content: aiSummary.term5_termination,
+      content: activeSummary?.term5_termination_conditions || activeSummary?.term5_termination || 'Đang phân tích điều kiện chấm dứt...',
     },
   ];
 
@@ -101,7 +126,7 @@ export const AISummarizerModal: React.FC<AISummarizerModalProps> = ({
               </span>
             </div>
             <p className="text-xs text-slate-500">
-              Trích xuất 5 điều khoản pháp lý cốt lõi • Độ tin cậy: {aiSummary.confidenceScore}% (RAG Match)
+              Trích xuất 5 điều khoản pháp lý cốt lõi • Độ tin cậy: {confidence}% (RAG Match)
             </p>
           </div>
         </div>
@@ -113,6 +138,15 @@ export const AISummarizerModal: React.FC<AISummarizerModalProps> = ({
             <span>Mã HĐ: <strong className="text-slate-800">{contract.contractCode}</strong> ({contract.roomNumber})</span>
           </div>
           <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              leftIcon={<RefreshCw className={`w-3.5 h-3.5 ${isSummarizing ? 'animate-spin text-brand-600' : ''}`} />}
+              onClick={handleFetchSummary}
+              disabled={isSummarizing}
+            >
+              {isSummarizing ? 'Đang tóm tắt...' : 'Tóm tắt lại'}
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -139,7 +173,9 @@ export const AISummarizerModal: React.FC<AISummarizerModalProps> = ({
           {terms.map((term) => (
             <div
               key={term.num}
-              className="bg-slate-50/80 hover:bg-slate-50 border border-slate-200/80 rounded-xl p-4 transition-all duration-200 hover:border-brand-300"
+              className={`bg-slate-50/80 hover:bg-slate-50 border border-slate-200/80 rounded-xl p-4 transition-all duration-200 hover:border-brand-300 ${
+                isSummarizing ? 'opacity-70 animate-pulse' : ''
+              }`}
             >
               <div className="flex items-start justify-between gap-2 mb-1.5">
                 <div className="flex items-center gap-2.5">

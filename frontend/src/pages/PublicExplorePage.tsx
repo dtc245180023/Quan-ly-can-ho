@@ -19,6 +19,7 @@ import { FooterInfoModal, FooterModalKey } from '../components/common/FooterInfo
 import { PropertyVideoShowcase } from '../components/common/PropertyVideoShowcase';
 import { TimePicker24h } from '../components/common/TimePicker24h';
 import { Badge } from '../components/common/Badge';
+import { AIRoomMatcherModal } from '../components/ai/AIRoomMatcherModal';
 
 export const PublicExplorePage: React.FC = () => {
   const navigate = useNavigate();
@@ -26,6 +27,7 @@ export const PublicExplorePage: React.FC = () => {
   const noticeParam = searchParams.get('notice');
   const [showNoContractNotice, setShowNoContractNotice] = useState(noticeParam === 'no_active_contract');
   const [isMyBookingsOpen, setIsMyBookingsOpen] = useState(false);
+  const [isRoomMatcherOpen, setIsRoomMatcherOpen] = useState(false);
 
   const { showSuccessToast, showErrorToast } = useToast();
   const { isAuthenticated, isTenant, isAdmin, isStaff, switchRole, user, logout } = useAuth();
@@ -79,6 +81,7 @@ export const PublicExplorePage: React.FC = () => {
     email: user?.email || '',
     date: new Date(Date.now() + 86400000).toISOString().split('T')[0],
     time: '14:00',
+    depositAmount: 0,
     notes: 'Tôi muốn hẹn xem căn phòng này.'
   });
 
@@ -99,6 +102,7 @@ export const PublicExplorePage: React.FC = () => {
       email: user?.email || '',
       date: new Date(Date.now() + 86400000).toISOString().split('T')[0],
       time: '14:00',
+      depositAmount: 0,
       notes: 'Tôi muốn hẹn xem căn phòng này.'
     });
     setBookingModalApartment(apt);
@@ -142,7 +146,7 @@ export const PublicExplorePage: React.FC = () => {
         roomNumber: bookingModalApartment.roomNumber,
         buildingName: bookingModalApartment.buildingName,
         monthlyPrice: bookingModalApartment.price,
-        depositAmount: 0,
+        depositAmount: bookingForm.depositAmount,
         checkInDate: bookingForm.date,
         notes: `[Khung giờ hẹn xem: ${bookingForm.time || '14:00'}] ${bookingForm.notes}`
       }).unwrap();
@@ -151,8 +155,12 @@ export const PublicExplorePage: React.FC = () => {
         ? bookingModalApartment.roomNumber
         : `P${bookingModalApartment.roomNumber}`;
 
+      const actionText = bookingForm.depositAmount > 0 
+        ? `đặt cọc giữ chỗ ưu tiên (${formatCurrency(bookingForm.depositAmount)})` 
+        : 'hẹn xem phòng trực tiếp (0 đ)';
+
       showSuccessToast(
-        `Đã đặt lịch hẹn xem căn ${roomDisplay} lúc ${bookingForm.time || '14:00'} ngày ${formatDate(bookingForm.date)} thành công! Ban quản lý Dwell Living sẽ liên hệ xác nhận.`
+        `Đã ${actionText} căn ${roomDisplay} lúc ${bookingForm.time || '14:00'} ngày ${formatDate(bookingForm.date)} thành công! Ban quản lý Dwell Living sẽ liên hệ xác nhận.`
       );
       setBookingModalApartment(null);
     } catch (err: any) {
@@ -350,7 +358,7 @@ export const PublicExplorePage: React.FC = () => {
           {/* Main Filter Inputs: Search, Bedroom, Price in 1 sleek aligned row */}
           <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5 items-center">
             {/* 1. Từ khóa tìm kiếm */}
-            <div className="md:col-span-5 relative">
+            <div className="md:col-span-4 relative">
               <input
                 type="text"
                 value={searchTerm}
@@ -390,7 +398,7 @@ export const PublicExplorePage: React.FC = () => {
             </div>
 
             {/* 3. Khoảng giá thuê */}
-            <div className="md:col-span-4 relative">
+            <div className="md:col-span-3 relative">
               <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none text-brand-600">
                 <Tag className="w-4 h-4" />
               </div>
@@ -406,6 +414,19 @@ export const PublicExplorePage: React.FC = () => {
                 <option value="OVER_20M">Trên 20 triệu / tháng ({countOver20M} căn)</option>
               </select>
               <ChevronDown className="w-4 h-4 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            </div>
+
+            {/* 4. Nút bấm nổi bật Trợ lý AI Tìm Phòng */}
+            <div className="md:col-span-2">
+              <button
+                type="button"
+                onClick={() => setIsRoomMatcherOpen(true)}
+                className="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-gradient-to-r from-brand-600 via-indigo-600 to-purple-600 hover:from-brand-700 hover:to-purple-700 text-white text-xs sm:text-sm font-bold rounded-xl shadow-xs hover:shadow-md transition-all active:scale-95"
+                title="Mở trợ lý AI Room Matcher đề xuất căn hộ thông minh"
+              >
+                <Sparkles className="w-4 h-4 text-amber-300 animate-pulse shrink-0" />
+                <span className="truncate">Tìm phòng với Trợ lý AI</span>
+              </button>
             </div>
           </div>
 
@@ -986,7 +1007,42 @@ export const PublicExplorePage: React.FC = () => {
                 </div>
               </div>
 
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">Hình thức đăng ký & Giữ chỗ *</label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setBookingForm({ ...bookingForm, depositAmount: 0 })}
+                    className={`p-3 rounded-xl border text-left transition-all ${
+                      bookingForm.depositAmount === 0
+                        ? 'bg-sky-50/80 border-sky-500 ring-2 ring-sky-500/20 shadow-2xs'
+                        : 'bg-white border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-900">Hẹn xem trực tiếp</span>
+                      <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded">0 đ</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-1">Chưa cọc - Xếp lịch tham quan thực tế</p>
+                  </button>
 
+                  <button
+                    type="button"
+                    onClick={() => setBookingForm({ ...bookingForm, depositAmount: 2000000 })}
+                    className={`p-3 rounded-xl border text-left transition-all ${
+                      bookingForm.depositAmount === 2000000
+                        ? 'bg-emerald-50/80 border-emerald-500 ring-2 ring-emerald-500/20 shadow-2xs'
+                        : 'bg-white border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-emerald-900">Đặt cọc giữ chỗ ưu tiên</span>
+                      <span className="text-[10px] font-black text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded">2.000.000 đ</span>
+                    </div>
+                    <p className="text-[11px] text-emerald-600 mt-1">Khóa phòng ưu tiên - Trừ vào cọc HĐ</p>
+                  </button>
+                </div>
+              </div>
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">Ghi chú thêm</label>
@@ -1012,7 +1068,7 @@ export const PublicExplorePage: React.FC = () => {
                   disabled={isBookingLoading}
                   className="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold rounded-lg shadow-sm shadow-sky-600/30 transition-colors"
                 >
-                  {isBookingLoading ? 'Đang gửi...' : 'Xác Nhận Hẹn Xem'}
+                  {isBookingLoading ? 'Đang gửi...' : bookingForm.depositAmount > 0 ? 'Xác Nhận Giữ Chỗ (2.000.000 đ)' : 'Xác Nhận Hẹn Xem'}
                 </button>
               </div>
             </form>
@@ -1129,6 +1185,18 @@ export const PublicExplorePage: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* AI Room Matcher Modal */}
+      {isRoomMatcherOpen && (
+        <AIRoomMatcherModal
+          isOpen={isRoomMatcherOpen}
+          onClose={() => setIsRoomMatcherOpen(false)}
+          apartments={apartments}
+          onSelectApartment={(apt) => {
+            handleInitiateBooking(apt);
+          }}
+        />
       )}
 
       {/* Footer Information Modal */}

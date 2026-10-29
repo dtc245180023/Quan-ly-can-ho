@@ -2,7 +2,6 @@ import React from 'react';
 import { Outlet } from 'react-router-dom';
 import { TenantSidebar } from './TenantSidebar';
 import { TenantHeader } from './TenantHeader';
-import { FloatingAIChatbot } from '../ai/FloatingAIChatbot';
 
 interface TenantLayoutProps {
   children?: React.ReactNode;
@@ -21,9 +20,6 @@ export const TenantLayout: React.FC<TenantLayoutProps> = ({ children }) => {
         <main className="flex-1 p-4 sm:p-6 lg:p-8 w-full max-w-[1720px] mx-auto">
           {children || <Outlet />}
         </main>
-
-        {/* Global Floating 24/7 AI Chatbot */}
-        <FloatingAIChatbot />
       </div>
     </div>
   );

@@ -119,11 +119,15 @@ export const adaptContract = (c: any): IContract => {
   if (!c) return {} as IContract;
 
   // Xử lý tóm tắt AI
-  let aiSummaryObj = {
+  let aiSummaryObj: any = {
     term1_duration: 'Thời hạn thuê theo quy định hợp đồng ký kết',
+    term2_rental_price: `Giá thuê: ${Number(c.rental_price || 0).toLocaleString()} VNĐ/tháng`,
     term2_rentalPrice: `Giá thuê: ${Number(c.rental_price || 0).toLocaleString()} VNĐ/tháng`,
-    term3_paymentObligation: 'Thanh toán định kỳ trước ngày 10 hàng tháng qua VietQR',
+    term3_deposit: `Tiền cọc bảo đảm: ${Number(c.deposit_amount || 0).toLocaleString()} VNĐ`,
+    term3_paymentObligation: `Tiền cọc bảo đảm: ${Number(c.deposit_amount || 0).toLocaleString()} VNĐ`,
+    term4_payment_obligations: 'Thanh toán định kỳ trước ngày 10 hàng tháng qua VietQR Napas247',
     term4_penalties: 'Phạt chậm trả theo quy định hợp đồng (0.05%/ngày)',
+    term5_termination_conditions: 'Báo trước 30 ngày khi chấm dứt hợp đồng',
     term5_termination: 'Báo trước 30 ngày khi chấm dứt hợp đồng',
     confidenceScore: 0.95,
     extractedAt: c.created_at || new Date().toISOString(),
@@ -139,11 +143,15 @@ export const adaptContract = (c: any): IContract => {
           aiSummaryObj = {
             ...aiSummaryObj,
             ...parsed,
-            term1_duration: parsed.term1_duration || parsed.duration || parsed.rental_price || aiSummaryObj.term1_duration,
-            term2_rentalPrice: parsed.term2_rentalPrice || parsed.rental_price || aiSummaryObj.term2_rentalPrice,
-            term3_paymentObligation: parsed.term3_paymentObligation || parsed.payment_due_date || parsed.deposit_terms || aiSummaryObj.term3_paymentObligation,
-            term4_penalties: parsed.term4_penalties || parsed.payment_cycle || aiSummaryObj.term4_penalties,
-            term5_termination: parsed.term5_termination || parsed.refund_and_termination_policy || aiSummaryObj.term5_termination,
+            term1_duration: parsed.term1_duration || parsed.duration || aiSummaryObj.term1_duration,
+            term2_rental_price: parsed.term2_rental_price || parsed.term2_rentalPrice || parsed.rental_price || aiSummaryObj.term2_rental_price,
+            term2_rentalPrice: parsed.term2_rentalPrice || parsed.term2_rental_price || parsed.rental_price || aiSummaryObj.term2_rentalPrice,
+            term3_deposit: parsed.term3_deposit || parsed.deposit_terms || aiSummaryObj.term3_deposit,
+            term3_paymentObligation: parsed.term3_paymentObligation || parsed.term3_deposit || aiSummaryObj.term3_paymentObligation,
+            term4_payment_obligations: parsed.term4_payment_obligations || parsed.term4_penalties || aiSummaryObj.term4_payment_obligations,
+            term4_penalties: parsed.term4_penalties || parsed.term4_payment_obligations || parsed.payment_cycle || aiSummaryObj.term4_penalties,
+            term5_termination_conditions: parsed.term5_termination_conditions || parsed.term5_termination || parsed.refund_and_termination_policy || aiSummaryObj.term5_termination_conditions,
+            term5_termination: parsed.term5_termination || parsed.term5_termination_conditions || parsed.refund_and_termination_policy || aiSummaryObj.term5_termination,
           };
         } else {
           aiSummaryObj.term1_duration = c.ai_summary;
@@ -386,9 +394,9 @@ export const adaptBooking = (b: any): IBooking => {
     customerEmail: b.customer_email || '',
     customerCitizenId: b.customer_citizen_id,
     apartmentId: b.apartment_id,
-    roomNumber: b.room_number || `P${b.apartment_id}`,
-    buildingName: b.building_name || 'Dwell',
-    monthlyPrice: Number(b.monthly_price) || 12000000,
+    roomNumber: b.room_number || b.apartment?.room_number || `P${b.apartment_id}`,
+    buildingName: b.building_name || b.apartment?.building?.name || 'Dwell',
+    monthlyPrice: Number(b.monthly_price ?? b.apartment?.price ?? 0),
     checkInDate: b.check_in_date || '',
     depositAmount: Number(b.deposit_amount) || 0,
     status: b.status || 'PENDING',

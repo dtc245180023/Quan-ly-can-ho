@@ -140,11 +140,11 @@ export const ResidentPortalPage: React.FC = () => {
     : (realContract || fallbackContract);
 
   const activeApartment = apartments.find((a) => a.id === activeContract.apartmentId || a.roomNumber === activeContract.roomNumber)
-    || apartments[0];
+    || (isManagement ? apartments[0] : undefined);
 
-  const activeBill = receivables.find((r) => (r.contractId === activeContract.id || r.tenantId === currentTenant.id || r.roomNumber === activeApartment?.roomNumber) && r.status !== 'PAID')
-    || receivables.find((r) => r.contractId === activeContract.id || r.tenantId === currentTenant.id || r.roomNumber === activeApartment?.roomNumber)
-    || receivables[0];
+  const activeBill = receivables.find((r) => (r.contractId === activeContract.id || r.tenantId === currentTenant.id || (activeApartment?.roomNumber && r.roomNumber === activeApartment.roomNumber)) && r.status !== 'PAID')
+    || receivables.find((r) => r.contractId === activeContract.id || r.tenantId === currentTenant.id || (activeApartment?.roomNumber && r.roomNumber === activeApartment.roomNumber))
+    || (isManagement ? receivables[0] : undefined);
   const myTickets = maintenanceList.filter((m) =>
     m.apartmentId === activeApartment?.id ||
     m.roomNumber === activeApartment?.roomNumber ||
@@ -307,7 +307,7 @@ export const ResidentPortalPage: React.FC = () => {
     }
   };
 
-  if (!isManagement && (!currentTenant || !activeContract)) {
+  if (!isResidentAuthorized) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
         <div className="max-w-md w-full bg-white rounded-3xl border border-slate-200/90 p-8 shadow-sm text-center space-y-4">

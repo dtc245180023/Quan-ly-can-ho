@@ -86,7 +86,8 @@ def create_payment(
     current_user: User = Depends(
         require_roles(
             "ADMIN",
-            "ACCOUNTANT"
+            "ACCOUNTANT",
+            "TENANT"
         )
     )
 ):
@@ -101,6 +102,21 @@ def create_payment(
             status_code=404,
             detail="Không tìm thấy khoản phải thu"
         )
+
+    # Nếu là cư dân (TENANT), bắt buộc phải là hóa đơn của chính mình
+    user_role = db.query(Role).filter(Role.id == current_user.role_id).first()
+    if user_role and user_role.role_code == "TENANT":
+        tenant = db.query(Tenant).filter(
+            (Tenant.user_id == current_user.id) |
+            (Tenant.phone == current_user.phone) |
+            (Tenant.email == current_user.email)
+        ).first()
+        if not tenant:
+            raise HTTPException(status_code=403, detail="Không tìm thấy hồ sơ cư dân của bạn")
+
+        contract = db.query(Contract).filter(Contract.id == receivable.contract_id).first()
+        if not contract or contract.tenant_id != tenant.id:
+            raise HTTPException(status_code=403, detail="Bạn không có quyền thanh toán cho hóa đơn của căn hộ khác")
 
     # 2. Không thanh toán lại khoản đã PAID
     if receivable.status == "PAID":
@@ -146,16 +162,9 @@ def create_payment(
     transaction_code = data.transaction_code
 
     if data.payment_method == "BANK_TRANSFER":
-
         if not transaction_code:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "Thanh toán chuyển khoản "
-                    "phải có mã giao dịch"
-                )
-            )
-
+            today = datetime.now().strftime("%Y%m%d")
+            transaction_code = f"VQR-{today}-{uuid4().hex[:6].upper()}"
     else:
         # Tiền mặt: Backend tự sinh mã phiếu thu
         if not transaction_code:

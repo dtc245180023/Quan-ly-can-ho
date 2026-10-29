@@ -21,7 +21,7 @@ import {
 import { StatCard } from '../components/common/StatCard';
 import { Badge } from '../components/common/Badge';
 import { Button } from '../components/common/Button';
-import { useGetDashboardStatsQuery } from '../modules/dashboard/services/dashboardApi';
+import { useGetDashboardStatsQuery, useGetRevenueTrendsQuery } from '../modules/dashboard/services/dashboardApi';
 import { formatCurrency, formatCompactCurrency } from '../utils/formatters';
 import { useToast } from '../hooks/useToast';
 import { useAuth } from '../hooks/useAuth';
@@ -36,6 +36,7 @@ export const AdminDashboardPage: React.FC = () => {
   const { isAccountant, isStaff, isAdmin } = useAuth();
   const navigate = useNavigate();
   const { data: stats, refetch, isFetching } = useGetDashboardStatsQuery({});
+  const { data: trendsData } = useGetRevenueTrendsQuery();
   const toast = useToast();
 
   const handleExportReport = async (_type?: string) => {
@@ -67,88 +68,28 @@ export const AdminDashboardPage: React.FC = () => {
     }
   };
 
-  // Dynamic monthly and quarterly trend based on live revenue stats from API
-  const rawRev = stats?.totalRevenueMonth || 58500000;
-  const effectiveRev = rawRev > 0 ? rawRev : 58500000;
-  const isBillion = effectiveRev >= 1000000000;
-  const baseRev = isBillion ? Number((effectiveRev / 1000000000).toFixed(2)) : Number((effectiveRev / 1000000).toFixed(1));
-  const unitLabel = isBillion ? 'Tỷ' : 'Tr';
+  // Dynamic monthly and quarterly trend based on real API data from backend
+  const unitLabel = trendsData?.unit_label || (stats?.totalRevenueMonth && stats.totalRevenueMonth >= 1000000000 ? 'Tỷ' : 'Tr');
 
-  const monthlyTrends = [
-    {
-      period: 'T05/26',
-      rent: Number((baseRev * 0.72 * 0.8).toFixed(1)),
-      service: Number((baseRev * 0.72 * 0.2).toFixed(1)),
-      opex: Number((baseRev * 0.72 * 0.26).toFixed(1)),
-      get total() { return Number((this.rent + this.service).toFixed(1)); },
-    },
-    {
-      period: 'T06/26',
-      rent: Number((baseRev * 0.78 * 0.8).toFixed(1)),
-      service: Number((baseRev * 0.78 * 0.2).toFixed(1)),
-      opex: Number((baseRev * 0.78 * 0.25).toFixed(1)),
-      get total() { return Number((this.rent + this.service).toFixed(1)); },
-    },
-    {
-      period: 'T07/26',
-      rent: Number((baseRev * 0.84 * 0.8).toFixed(1)),
-      service: Number((baseRev * 0.84 * 0.2).toFixed(1)),
-      opex: Number((baseRev * 0.84 * 0.26).toFixed(1)),
-      get total() { return Number((this.rent + this.service).toFixed(1)); },
-    },
-    {
-      period: 'T08/26',
-      rent: Number((baseRev * 0.89 * 0.81).toFixed(1)),
-      service: Number((baseRev * 0.89 * 0.19).toFixed(1)),
-      opex: Number((baseRev * 0.89 * 0.25).toFixed(1)),
-      get total() { return Number((this.rent + this.service).toFixed(1)); },
-    },
-    {
-      period: 'T09/26',
-      rent: Number((baseRev * 0.94 * 0.8).toFixed(1)),
-      service: Number((baseRev * 0.94 * 0.2).toFixed(1)),
-      opex: Number((baseRev * 0.94 * 0.27).toFixed(1)),
-      get total() { return Number((this.rent + this.service).toFixed(1)); },
-    },
-    {
-      period: 'T10/26',
-      rent: Number((baseRev * 0.81).toFixed(1)),
-      service: Number((baseRev * 0.19).toFixed(1)),
-      opex: Number((baseRev * 0.26).toFixed(1)),
-      get total() { return Number((this.rent + this.service).toFixed(1)); },
-    },
-  ];
+  const monthlyTrends = trendsData?.monthly?.length
+    ? trendsData.monthly
+    : [
+        { period: 'T05/26', rent: 33.7, service: 8.4, opex: 10.9, total: 42.1 },
+        { period: 'T06/26', rent: 36.5, service: 9.1, opex: 11.7, total: 45.6 },
+        { period: 'T07/26', rent: 39.3, service: 9.8, opex: 12.2, total: 49.1 },
+        { period: 'T08/26', rent: 42.1, service: 9.9, opex: 13.0, total: 52.0 },
+        { period: 'T09/26', rent: 44.0, service: 11.0, opex: 14.8, total: 55.0 },
+        { period: 'T10/26', rent: 47.4, service: 11.1, opex: 15.2, total: 58.5 },
+      ];
 
-  const quarterlyTrends = [
-    {
-      period: 'Q1/26',
-      rent: Number((baseRev * 2.1 * 0.8).toFixed(1)),
-      service: Number((baseRev * 2.1 * 0.2).toFixed(1)),
-      opex: Number((baseRev * 2.1 * 0.26).toFixed(1)),
-      get total() { return Number((this.rent + this.service).toFixed(1)); },
-    },
-    {
-      period: 'Q2/26',
-      rent: Number((baseRev * 2.4 * 0.8).toFixed(1)),
-      service: Number((baseRev * 2.4 * 0.2).toFixed(1)),
-      opex: Number((baseRev * 2.4 * 0.25).toFixed(1)),
-      get total() { return Number((this.rent + this.service).toFixed(1)); },
-    },
-    {
-      period: 'Q3/26',
-      rent: Number((baseRev * 2.7 * 0.8).toFixed(1)),
-      service: Number((baseRev * 2.7 * 0.2).toFixed(1)),
-      opex: Number((baseRev * 2.7 * 0.26).toFixed(1)),
-      get total() { return Number((this.rent + this.service).toFixed(1)); },
-    },
-    {
-      period: 'Q4/26 (Dự kiến)',
-      rent: Number((baseRev * 3.0 * 0.81).toFixed(1)),
-      service: Number((baseRev * 3.0 * 0.19).toFixed(1)),
-      opex: Number((baseRev * 3.0 * 0.25).toFixed(1)),
-      get total() { return Number((this.rent + this.service).toFixed(1)); },
-    },
-  ];
+  const quarterlyTrends = trendsData?.quarterly?.length
+    ? trendsData.quarterly
+    : [
+        { period: 'Q1/26', rent: 98.3, service: 24.6, opex: 31.9, total: 122.9 },
+        { period: 'Q2/26', rent: 112.3, service: 28.1, opex: 35.1, total: 140.4 },
+        { period: 'Q3/26', rent: 126.4, service: 31.6, opex: 41.1, total: 158.0 },
+        { period: 'Q4/26 (Dự kiến)', rent: 142.2, service: 33.3, opex: 43.9, total: 175.5 },
+      ];
 
   const chartData = selectedView === 'quarter' ? quarterlyTrends : monthlyTrends;
   const maxVal = Math.max(...chartData.map((d) => d.total), 1);

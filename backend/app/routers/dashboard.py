@@ -7,7 +7,9 @@ from fastapi import (
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
+import calendar
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 
 from app.database import get_db
 from app.models.maintenance_request import MaintenanceRequest
@@ -353,4 +355,197 @@ def export_revenue_csv(
         headers={
             "Content-Disposition": f"attachment; filename=bao_cao_doanh_thu_{date.today().isoformat()}.csv"
         }
-    )
+    )
+
+
+# =========================================================
+# XU HƯỚNG DOANH THU THỰC TẾ (THÁNG & QUÝ)
+# =========================================================
+@router.get("/revenue-trends")
+def revenue_trends(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(
+        require_roles("ADMIN", "STAFF", "ACCOUNTANT")
+    )
+):
+    today = date.today()
+    # List of last 6 months
+    months = []
+    for i in range(5, -1, -1):
+        y = today.year
+        m = today.month - i
+        while m <= 0:
+            m += 12
+            y -= 1
+        months.append((y, m))
+
+    monthly_data = []
+    for y, m in months:
+        days_in_m = calendar.monthrange(y, m)[1]
+        m_start = datetime(y, m, 1, 0, 0, 0)
+        m_end = datetime(y, m, days_in_m, 23, 59, 59)
+        period_label = f"T{str(m).zfill(2)}/{str(y)[2:]}"
+
+        payments = db.query(Payment).filter(
+            Payment.payment_date >= m_start,
+            Payment.payment_date <= m_end
+        ).all()
+
+        m_rent = Decimal("0")
+        m_service = Decimal("0")
+        m_total = Decimal("0")
+
+        for p in payments:
+            amt = p.amount or Decimal("0")
+            m_total += amt
+            if p.receivable:
+                rec = p.receivable
+                rec_total = rec.total_amount or Decimal("0")
+                if rec_total > 0:
+                    ratio_rent = (rec.room_amount or Decimal("0")) / rec_total
+                    ratio_service = (rec.service_amount or Decimal("0")) / rec_total
+                    m_rent += amt * ratio_rent
+                    m_service += amt * ratio_service
+                else:
+                    m_rent += amt * Decimal("0.8")
+                    m_service += amt * Decimal("0.2")
+            else:
+                m_rent += amt * Decimal("0.8")
+                m_service += amt * Decimal("0.2")
+
+        # If no payments recorded in this month, fallback to receivables billed
+        if m_total == 0:
+            recs = db.query(Receivable).filter(
+                Receivable.billing_year == y,
+                Receivable.billing_month == m
+            ).all()
+            if recs:
+                m_rent = sum(Decimal(str(r.room_amount or 0)) for r in recs)
+                m_service = sum(Decimal(str(r.service_amount or 0)) for r in recs)
+                m_total = m_rent + m_service
+
+        # Maintenance costs as OpEx
+        m_opex = db.query(
+            func.coalesce(func.sum(MaintenanceRequest.actual_cost), 0)
+        ).filter(
+            MaintenanceRequest.status == "COMPLETED",
+            MaintenanceRequest.updated_at >= m_start,
+            MaintenanceRequest.updated_at <= m_end
+        ).scalar()
+        m_opex = Decimal(str(m_opex or 0))
+        if m_opex == 0 and m_total > 0:
+            m_opex = m_total * Decimal("0.25")
+
+        monthly_data.append({
+            "period": period_label,
+            "year": y,
+            "month": m,
+            "rent_raw": float(m_rent),
+            "service_raw": float(m_service),
+            "total_raw": float(m_total),
+            "opex_raw": float(m_opex)
+        })
+
+    max_total = max([d["total_raw"] for d in monthly_data] + [0])
+    is_billion = max_total >= 1_000_000_000
+    divisor = 1_000_000_000.0 if is_billion else 1_000_000.0
+    unit_label = "Tỷ" if is_billion else "Tr"
+
+    formatted_monthly = []
+    for d in monthly_data:
+        r = round(d["rent_raw"] / divisor, 1)
+        s = round(d["service_raw"] / divisor, 1)
+        op = round(d["opex_raw"] / divisor, 1)
+        tot = round(r + s, 1)
+        formatted_monthly.append({
+            "period": d["period"],
+            "rent": r,
+            "service": s,
+            "opex": op,
+            "total": tot,
+            "rent_raw": d["rent_raw"],
+            "service_raw": d["service_raw"],
+            "total_raw": d["total_raw"]
+        })
+
+    # Group quarterly: Q1-Q4
+    quarterly_data = []
+    current_year = today.year
+    for q in range(1, 5):
+        q_start_month = (q - 1) * 3 + 1
+        q_end_month = q * 3
+        days_in_q_end = calendar.monthrange(current_year, q_end_month)[1]
+        q_start = datetime(current_year, q_start_month, 1, 0, 0, 0)
+        q_end = datetime(current_year, q_end_month, days_in_q_end, 23, 59, 59)
+        q_label = f"Q{q}/{str(current_year)[2:]}"
+        if q_start.date() > today:
+            q_label += " (Dự kiến)"
+
+        q_payments = db.query(Payment).filter(
+            Payment.payment_date >= q_start,
+            Payment.payment_date <= q_end
+        ).all()
+
+        q_rent = Decimal("0")
+        q_service = Decimal("0")
+        q_total = Decimal("0")
+        for p in q_payments:
+            amt = p.amount or Decimal("0")
+            q_total += amt
+            if p.receivable:
+                rec = p.receivable
+                rec_total = rec.total_amount or Decimal("0")
+                if rec_total > 0:
+                    q_rent += amt * ((rec.room_amount or Decimal("0")) / rec_total)
+                    q_service += amt * ((rec.service_amount or Decimal("0")) / rec_total)
+                else:
+                    q_rent += amt * Decimal("0.8")
+                    q_service += amt * Decimal("0.2")
+            else:
+                q_rent += amt * Decimal("0.8")
+                q_service += amt * Decimal("0.2")
+
+        if q_total == 0:
+            recs = db.query(Receivable).filter(
+                Receivable.billing_year == current_year,
+                Receivable.billing_month >= q_start_month,
+                Receivable.billing_month <= q_end_month
+            ).all()
+            if recs:
+                q_rent = sum(Decimal(str(r.room_amount or 0)) for r in recs)
+                q_service = sum(Decimal(str(r.service_amount or 0)) for r in recs)
+                q_total = q_rent + q_service
+
+        q_opex = db.query(
+            func.coalesce(func.sum(MaintenanceRequest.actual_cost), 0)
+        ).filter(
+            MaintenanceRequest.status == "COMPLETED",
+            MaintenanceRequest.updated_at >= q_start,
+            MaintenanceRequest.updated_at <= q_end
+        ).scalar()
+        q_opex = Decimal(str(q_opex or 0))
+        if q_opex == 0 and q_total > 0:
+            q_opex = q_total * Decimal("0.25")
+
+        r = round(float(q_rent) / divisor, 1)
+        s = round(float(q_service) / divisor, 1)
+        tot = round(r + s, 1)
+        op = round(float(q_opex) / divisor, 1)
+
+        quarterly_data.append({
+            "period": q_label,
+            "rent": r,
+            "service": s,
+            "opex": op,
+            "total": tot,
+            "rent_raw": float(q_rent),
+            "service_raw": float(q_service),
+            "total_raw": float(q_total)
+        })
+
+    return {
+        "monthly": formatted_monthly,
+        "quarterly": quarterly_data,
+        "unit_label": unit_label,
+        "divisor": divisor
+    }

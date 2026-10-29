@@ -5,7 +5,7 @@ echo  KHOI CHAY HE THONG QUAN LY THUE CAN HO (DWELL LIVING)
 echo ========================================================
 echo.
 echo [1/2] Dang khoi chay Backend FastAPI (Port 8000, Host 0.0.0.0)...
-start "Backend - Dwell Living (FastAPI)" cmd /k "cd /d %~dp0backend && python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000"
+start "Backend - Dwell Living (FastAPI)" cmd /k "cd /d %~dp0backend && py -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000"
 
 echo [2/2] Dang khoi chay Frontend Vite (Port 5173)...
 start "Frontend - Dwell Living (Vite React)" cmd /k "cd /d %~dp0frontend && npm run dev"

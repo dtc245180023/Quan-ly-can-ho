@@ -85,3 +85,17 @@ class Booking(Base):
         back_populates="booking",
         uselist=False
     )
+
+    @property
+    def room_number(self):
+        return self.apartment.room_number if self.apartment else None
+
+    @property
+    def building_name(self):
+        if self.apartment and self.apartment.building:
+            return self.apartment.building.name
+        return None
+
+    @property
+    def monthly_price(self):
+        return self.apartment.price if self.apartment else None

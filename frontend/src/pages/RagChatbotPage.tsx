@@ -110,7 +110,9 @@ export const RagChatbotPage: React.FC = () => {
       toast.success('Đã nạp văn bản', 'Đã vector hóa đoạn trích quy định vào Vector DB 768 chiều!');
       setIsUploadModalOpen(false);
       setDocName('');
+      setChunkTitle('');
       setChunkContent('');
+      setChunkCitation('');
     } catch {
       toast.error('Lỗi', 'Không thể nạp văn bản');
     }

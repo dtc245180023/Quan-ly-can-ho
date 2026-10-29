@@ -249,6 +249,7 @@ def create_contract_direct(
     booking_id = booking.id if booking else None
     if booking:
         booking.status = "CONVERTED"
+        booking.deposit_amount = data.deposit_amount
 
     contract = create_contract_and_deposit(
         db=db,
@@ -451,6 +452,7 @@ def create_contract_from_booking(
     )
 
     booking.status = "CONVERTED"
+    booking.deposit_amount = data.deposit_amount
 
     db.commit()
     db.refresh(contract)

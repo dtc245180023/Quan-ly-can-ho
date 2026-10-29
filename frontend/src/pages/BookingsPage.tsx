@@ -73,7 +73,7 @@ export const BookingsPage: React.FC = () => {
 
   const handleConvertToContract = (booking: IBooking) => {
     navigate(
-      `/admin/contracts?action=create&aptId=${booking.apartmentId}&customerName=${encodeURIComponent(
+      `/admin/contracts?action=create&aptId=${booking.apartmentId}&bookingId=${booking.id}&depositAmount=${booking.depositAmount || 0}&customerName=${encodeURIComponent(
         booking.customerName
       )}&customerPhone=${booking.customerPhone}&customerEmail=${encodeURIComponent(
         booking.customerEmail || ''
@@ -467,16 +467,37 @@ export const BookingsPage: React.FC = () => {
                   </td>
 
                   <td className="px-6 py-4.5">
-                    <span className="font-black text-slate-900 text-sm sm:text-base">
-                      {b.depositAmount > 0 ? (
-                        <span className="text-emerald-700 font-black">{formatCurrency(b.depositAmount)}</span>
-                      ) : (
-                        <span className="text-slate-400 font-medium flex items-center gap-1">
-                          <span>0 đ</span>
-                          <span className="text-xs text-slate-400 font-normal">(Chưa cọc)</span>
-                        </span>
-                      )}
-                    </span>
+                    {b.status === 'CONVERTED' ? (
+                      <div>
+                        {b.depositAmount > 0 ? (
+                          <div className="space-y-1">
+                            <span className="text-emerald-700 font-black text-sm sm:text-base block">
+                              {formatCurrency(b.depositAmount)}
+                            </span>
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-800 bg-emerald-100/90 border border-emerald-300 px-2 py-0.5 rounded-md shadow-2xs">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                              Cọc HĐ: {formatCurrency(b.depositAmount)}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-slate-400 font-medium flex items-center gap-1">
+                            <span>0 đ</span>
+                            <span className="text-xs text-slate-400 font-normal">(Chưa cọc)</span>
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="font-black text-slate-900 text-sm sm:text-base">
+                        {b.depositAmount > 0 ? (
+                          <span className="text-emerald-700 font-black">{formatCurrency(b.depositAmount)}</span>
+                        ) : (
+                          <span className="text-slate-400 font-medium flex items-center gap-1">
+                            <span>0 đ</span>
+                            <span className="text-xs text-slate-400 font-normal">(Chưa cọc)</span>
+                          </span>
+                        )}
+                      </span>
+                    )}
                   </td>
 
                   <td className="px-6 py-4.5">
@@ -584,13 +605,39 @@ export const BookingsPage: React.FC = () => {
               value={checkIn}
               onChange={(e) => setCheckIn(e.target.value)}
             />
-            <Input
-              label="Tiền cọc giữ chỗ (VNĐ)"
-              type="number"
-              required
-              value={deposit}
-              onChange={(e) => setDeposit(Number(e.target.value))}
-            />
+            <div>
+              <Input
+                label="Tiền cọc giữ chỗ (VNĐ)"
+                type="number"
+                required
+                value={deposit}
+                onChange={(e) => setDeposit(Number(e.target.value))}
+              />
+              <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                <button
+                  type="button"
+                  onClick={() => setDeposit(0)}
+                  className={`text-[11px] px-2.5 py-1 rounded-lg border transition-all ${
+                    deposit === 0
+                      ? 'bg-slate-900 text-white border-slate-900 font-bold shadow-2xs'
+                      : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
+                  }`}
+                >
+                  0 đ - Xem phòng
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDeposit(2000000)}
+                  className={`text-[11px] px-2.5 py-1 rounded-lg border transition-all ${
+                    deposit === 2000000
+                      ? 'bg-emerald-600 text-white border-emerald-600 font-bold shadow-2xs'
+                      : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                  }`}
+                >
+                  2.000.000 đ - Giữ chỗ tiêu chuẩn
+                </button>
+              </div>
+            </div>
           </div>
 
           <Input

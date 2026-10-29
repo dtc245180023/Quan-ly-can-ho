@@ -101,6 +101,32 @@ export const buildingApi = baseApi.injectEndpoints({
       transformResponse: (res: any) => adaptBuilding(res),
       invalidatesTags: [{ type: 'Building', id: 'LIST' }],
     }),
+
+    recommendApartmentsAI: builder.mutation<
+      Array<{
+        apartment_id: number;
+        building_id: number;
+        room_number: string;
+        price: number;
+        area_sqm: number;
+        max_occupants: number;
+        amenities: string[];
+        reason: string;
+      }>,
+      {
+        max_budget: number;
+        min_area?: number;
+        occupants?: number;
+        building_id?: number;
+        amenities?: string[];
+      }
+    >({
+      query: (body) => ({
+        url: '/ai/apartments/recommend',
+        method: 'POST',
+        body,
+      }),
+    }),
   }),
   overrideExisting: true,
 });
@@ -112,4 +138,5 @@ export const {
   useUpdateApartmentStatusMutation,
   useCreateApartmentMutation,
   useCreateBuildingMutation,
+  useRecommendApartmentsAIMutation,
 } = buildingApi;

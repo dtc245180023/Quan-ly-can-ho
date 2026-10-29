@@ -75,6 +75,7 @@ export const ContractsPage: React.FC = () => {
 
   // New Contract Form State
   const [aptId, setAptId] = useState<number>(1);
+  const [bookingId, setBookingId] = useState<number | null>(null);
   const [tenantName, setTenantName] = useState('');
   const [tenantPhone, setTenantPhone] = useState('');
   const [tenantCitizenId, setTenantCitizenId] = useState('');
@@ -170,6 +171,11 @@ export const ContractsPage: React.FC = () => {
       if (paramTenantId) {
         setSelectedTenantId(Number(paramTenantId));
         setTenantMode('EXISTING');
+      }
+
+      const paramBookingId = searchParams.get('bookingId');
+      if (paramBookingId) {
+        setBookingId(Number(paramBookingId));
       }
 
       const custName = searchParams.get('customerName');
@@ -355,6 +361,7 @@ export const ContractsPage: React.FC = () => {
         depositAmount: Number(depositAmount),
         startDate,
         endDate,
+        bookingId: bookingId || undefined,
       }).unwrap();
 
       const customerLabel = tenantMode === 'EXISTING' ? selectedTenant?.fullName : tenantName.trim();
@@ -378,6 +385,7 @@ export const ContractsPage: React.FC = () => {
   const handleOpenCreateModal = () => {
     setContractErrors({});
     setSelectedTenantId(null); // Tuyệt đối không tự động chọn khách thuê
+    setBookingId(null);
     setTenantMode('EXISTING');
     const availApt = apartments.find((a) => a.status === 'AVAILABLE' || a.status === 'RESERVED');
     if (availApt) {
@@ -390,6 +398,7 @@ export const ContractsPage: React.FC = () => {
 
   const handleCloseCreateModal = () => {
     setIsCreateModalOpen(false);
+    setBookingId(null);
     setContractErrors({});
     setSelectedTenantId(null);
     setTenantName('');
@@ -885,6 +894,18 @@ export const ContractsPage: React.FC = () => {
           <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-start gap-2.5 animate-in fade-in">
             <AlertCircle className="w-4 h-4 shrink-0 text-rose-500 mt-0.5" />
             <div className="flex-1 font-medium">{contractErrors.general}</div>
+          </div>
+        )}
+
+        {bookingId && (
+          <div className="mb-4 p-3 rounded-xl bg-amber-50/90 border border-amber-200 text-amber-900 text-xs flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+              <span className="font-bold">Đang liên kết từ Đặt phòng #{bookingId}</span>
+            </div>
+            <span className="text-[11px] font-semibold text-amber-700 bg-amber-100/80 px-2 py-0.5 rounded-md border border-amber-300">
+              Tự động chuyển Booking sang Đã Lên HĐ
+            </span>
           </div>
         )}
 

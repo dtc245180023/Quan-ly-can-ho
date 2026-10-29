@@ -1,4 +1,5 @@
-from datetime import date
+import calendar
+from datetime import date, timedelta
 from decimal import Decimal
 
 from fastapi import HTTPException
@@ -38,9 +39,16 @@ def generate_monthly_receivables(
 
     created_count = 0
     total_amount = Decimal("0")
-    due_date = date(billing_year, billing_month, 10)
+
+    days_in_month = calendar.monthrange(billing_year, billing_month)[1]
+    first_day_of_month = date(billing_year, billing_month, 1)
+    last_day_of_month = date(billing_year, billing_month, days_in_month)
 
     for contract in active_contracts:
+        # Check if contract overlaps with billing month
+        if contract.start_date > last_day_of_month or (contract.end_date and contract.end_date < first_day_of_month):
+            continue
+
         existing = db.query(Receivable).filter(
             Receivable.contract_id == contract.id,
             Receivable.billing_month == billing_month,
@@ -50,10 +58,22 @@ def generate_monthly_receivables(
         if existing is not None:
             continue
 
-        total = (
-            Decimal(str(contract.rental_price))
-            + service_amount
-        )
+        # Calculate prorated days
+        eff_start = max(contract.start_date, first_day_of_month)
+        eff_end = min(contract.end_date, last_day_of_month) if contract.end_date else last_day_of_month
+        if eff_start > eff_end:
+            continue
+
+        active_days = (eff_end - eff_start).days + 1
+
+        if active_days >= days_in_month:
+            room_amount = contract.rental_price
+        else:
+            # Prorated room rent rounded to nearest 1,000 VND
+            calculated = (float(contract.rental_price) * active_days) / days_in_month
+            room_amount = Decimal(str(round(calculated / 1000) * 1000))
+
+        total = room_amount + service_amount
 
         if service_amount > 0:
             mgmt_cost = Decimal(str(round(float(service_amount) * 0.20 / 1000) * 1000))
@@ -68,13 +88,19 @@ def generate_monthly_receivables(
             elec_kwh = Decimal("0")
             wat_m3 = Decimal("0")
 
+        # Determine due date
+        if eff_start.day > 10:
+            due_date = min(last_day_of_month, eff_start + timedelta(days=5))
+        else:
+            due_date = date(billing_year, billing_month, 10)
+
         db.add(
             Receivable(
                 contract_id=contract.id,
                 apartment_id=contract.apartment_id,
                 billing_month=billing_month,
                 billing_year=billing_year,
-                room_amount=contract.rental_price,
+                room_amount=room_amount,
                 service_amount=service_amount,
                 electricity_cost=elec_cost,
                 electricity_usage_kwh=elec_kwh,

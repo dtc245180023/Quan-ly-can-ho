@@ -2,6 +2,24 @@ import { baseApi } from '../../../stores/baseApi';
 import { IDashboardStats } from '../../../types';
 import { adaptDashboardStats } from '../../../utils/adapters';
 
+export interface IRevenueTrendItem {
+  period: string;
+  rent: number;
+  service: number;
+  opex: number;
+  total: number;
+  rent_raw?: number;
+  service_raw?: number;
+  total_raw?: number;
+}
+
+export interface IRevenueTrendsResponse {
+  monthly: IRevenueTrendItem[];
+  quarterly: IRevenueTrendItem[];
+  unit_label: string;
+  divisor: number;
+}
+
 export const dashboardApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
     getDashboardStats: builder.query<IDashboardStats, { buildingId?: number } | void>({
@@ -25,6 +43,11 @@ export const dashboardApi = baseApi.injectEndpoints({
       query: () => '/dashboard/overdue',
       providesTags: [{ type: 'Dashboard', id: 'STATS' }],
     }),
+
+    getRevenueTrends: builder.query<IRevenueTrendsResponse, void>({
+      query: () => '/dashboard/revenue-trends',
+      providesTags: [{ type: 'Dashboard', id: 'TRENDS' }],
+    }),
   }),
   overrideExisting: true,
 });
@@ -33,4 +56,5 @@ export const {
   useGetDashboardStatsQuery,
   useGetRevenueReportQuery,
   useGetOverdueReportQuery,
+  useGetRevenueTrendsQuery,
 } = dashboardApi;

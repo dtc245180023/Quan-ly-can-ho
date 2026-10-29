@@ -1,8 +1,12 @@
 import os
 from dataclasses import dataclass
 
+from pathlib import Path
 from dotenv import load_dotenv
 
+env_path = Path(__file__).resolve().parent.parent.parent / ".env"
+if env_path.is_file():
+    load_dotenv(dotenv_path=env_path)
 load_dotenv()
 
 
@@ -20,7 +24,7 @@ class Settings:
     gemini_api_key: str | None = os.getenv("GEMINI_API_KEY")
     gemini_model: str = os.getenv(
         "GEMINI_MODEL",
-        "gemini-3.8-flash"
+        "gemini-3.5-flash-lite"
     )
     gemini_embed_model: str = os.getenv(
         "GEMINI_EMBED_MODEL",

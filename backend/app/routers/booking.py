@@ -99,8 +99,9 @@ def create_booking(
     try:
         db.add(booking)
 
-        # Nếu căn hộ đang trống thì chuyển sang giữ chỗ
-        if apartment.status == "AVAILABLE":
+        # Chỉ chuyển căn hộ sang RESERVED khi có đặt cọc giữ chỗ (deposit_amount > 0)
+        # Nếu khách chỉ hẹn giờ xem phòng (cọc = 0), căn hộ vẫn giữ nguyên AVAILABLE cho khách khác
+        if (data.deposit_amount or 0) > 0 and apartment.status == "AVAILABLE":
             apartment.status = "RESERVED"
 
         db.commit()
@@ -220,6 +221,11 @@ def confirm_booking(
 
     try:
         booking.status = "CONFIRMED"
+        apartment = db.query(Apartment).filter(
+            Apartment.id == booking.apartment_id
+        ).first()
+        if apartment and apartment.status == "AVAILABLE" and (booking.deposit_amount or 0) > 0:
+            apartment.status = "RESERVED"
         db.commit()
         db.refresh(booking)
     except Exception:
@@ -268,8 +274,16 @@ def cancel_booking(
     try:
         booking.status = "CANCELLED"
 
-        if apartment:
-            apartment.status = "AVAILABLE"
+        if apartment and apartment.status == "RESERVED":
+            # Kiểm tra xem có booking nào khác đang giữ phòng không
+            other_holding = db.query(Booking).filter(
+                Booking.apartment_id == apartment.id,
+                Booking.id != booking.id,
+                Booking.status.in_(["CONFIRMED", "PENDING"]),
+                Booking.deposit_amount > 0
+            ).first()
+            if not other_holding:
+                apartment.status = "AVAILABLE"
 
         db.commit()
         db.refresh(booking)

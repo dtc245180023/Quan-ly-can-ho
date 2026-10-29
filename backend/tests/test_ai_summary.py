@@ -62,3 +62,67 @@ def test_ai_dunning_draft_generation():
         assert "Không thay đổi ngày tháng" in prompt
     finally:
         ai_service.generate_text = original_fn
+
+
+def test_ai_dunning_draft_fallback_regex():
+    """Kiểm tra fallback regex trích xuất đúng số nợ, không bắt nhầm phòng P101 hay mã HĐ HD-2026"""
+    alert_msg = "Căn hộ P101 hợp đồng HD-2026 quá hạn 5 ngày. Số nợ cần thu: 5,500,000 VNĐ. Khách thuê: Nguyen Van A."
+    # Khi generate_text lỗi thì fallback kích hoạt
+    def mock_fail(_prompt):
+        raise RuntimeError("API offline")
+
+    original_fn = ai_service.generate_text
+    ai_service.generate_text = mock_fail
+    try:
+        draft = ai_service.generate_alert_draft(alert_msg, scenario="OVERDUE_DEBT")
+        assert "5,500,000 VNĐ" in draft
+        assert "(101)" not in draft
+        assert "(2026)" not in draft
+    finally:
+        ai_service.generate_text = original_fn
+
+
+def test_ai_dunning_draft_expired_contract():
+    """Kiểm tra kịch bản EXPIRED_CONTRACT nhắc gia hạn và không đòi tiền nợ"""
+    alert_msg = "Hợp đồng HD-2026 của cư dân Tran B tại căn P303 sẽ hết hạn sau 10 ngày (2026-11-30). Cần liên hệ gia hạn hoặc chuẩn bị bàn giao."
+    def mock_fail(_prompt):
+        raise RuntimeError("API offline")
+
+    original_fn = ai_service.generate_text
+    ai_service.generate_text = mock_fail
+    try:
+        draft = ai_service.generate_alert_draft(alert_msg, scenario="EXPIRED_CONTRACT")
+        assert "gia hạn hợp đồng" in draft.lower()
+        assert "thanh toán số tiền" not in draft
+    finally:
+        ai_service.generate_text = original_fn
+
+
+def test_ai_dunning_draft_tone_variations():
+    """Kiểm tra AI đôn đốc nợ với các văn phong STRICT và CONCISE_SMS"""
+    alert_msg = "Căn hộ P101 quá hạn 5 ngày. Số nợ cần thu: 5,500,000 VNĐ."
+    def mock_fail(_prompt):
+        raise RuntimeError("API offline")
+
+    original_fn = ai_service.generate_text
+    ai_service.generate_text = mock_fail
+    try:
+        draft_sms = ai_service.generate_alert_draft(alert_msg, tone="CONCISE_SMS", scenario="OVERDUE_DEBT")
+        assert "[Dwell Living]" in draft_sms
+        assert "5,500,000 VNĐ" in draft_sms
+
+        draft_strict = ai_service.generate_alert_draft(alert_msg, tone="STRICT", scenario="OVERDUE_DEBT")
+        assert "khẩn trương" in draft_strict.lower()
+        assert "5,500,000 VNĐ" in draft_strict
+    finally:
+        ai_service.generate_text = original_fn
+
+
+def test_create_embedding_none_and_empty_safe():
+    """Kiểm tra create_embedding an toàn tuyệt đối với None, chuỗi rỗng và chuỗi khoảng trắng"""
+    vec_none = ai_service.create_embedding(None)
+    assert len(vec_none) == 768
+    vec_empty = ai_service.create_embedding("")
+    assert len(vec_empty) == 768
+    vec_spaces = ai_service.create_embedding("   ")
+    assert len(vec_spaces) == 768

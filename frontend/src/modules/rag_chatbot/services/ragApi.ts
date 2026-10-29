@@ -33,8 +33,13 @@ export const ragApi = baseApi.injectEndpoints({
         },
       }),
       transformResponse: (res: any): IRAGAnswerResult => {
-        const citationsList = res.citations || [];
-        const matchedChunks: IDocumentChunk[] = citationsList.map((c: any, index: number) => {
+        const rawList =
+          (res.matchedChunks && res.matchedChunks.length > 0)
+            ? res.matchedChunks
+            : (res.citations && res.citations.length > 0)
+            ? res.citations
+            : res.sources || [];
+        const matchedChunks: IDocumentChunk[] = rawList.map((c: any, index: number) => {
           if (typeof c === 'string') {
             return {
               id: index + 1,
@@ -61,21 +66,18 @@ export const ragApi = baseApi.injectEndpoints({
     }),
 
     addDocumentChunk: builder.mutation<IDocumentChunk, Partial<IDocumentChunk>>({
-      query: () => ({
-        url: '/ai/seed-knowledge',
+      query: (payload) => ({
+        url: '/ai/knowledge-chunks',
         method: 'POST',
+        body: {
+          document_name: payload.documentName || 'Nội quy Tòa nhà Dwell',
+          content: payload.content || '',
+          chunk_index: payload.chunkIndex,
+          title: payload.title,
+          citation: payload.citation,
+        },
       }),
-      transformResponse: (res: any): IDocumentChunk => ({
-        id: Date.now(),
-        docCode: 'DOC-NOI-QUY-BO-SUNG',
-        documentName: 'Nội quy Tòa nhà Bổ sung',
-        title: 'Quy định mới cập nhật',
-        chunkIndex: res.total_chunks || 1,
-        category: 'LIVING_RULES',
-        content: res.message || 'Đã nạp phân đoạn tri thức mới vào CSDL',
-        citation: 'Ban Quản trị Tòa nhà Dwell',
-        createdAt: new Date().toISOString(),
-      }),
+      transformResponse: (res: any): IDocumentChunk => adaptDocumentChunk(res),
       invalidatesTags: [{ type: 'RAGChunk', id: 'LIST' }],
     }),
   }),

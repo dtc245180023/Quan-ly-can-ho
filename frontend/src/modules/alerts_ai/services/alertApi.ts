@@ -93,27 +93,29 @@ export const alertApi = baseApi.injectEndpoints({
       ISystemAlert,
       { alertId: number; promptOptions: any }
     >({
-      query: ({ alertId }) => ({
-        url: `/alerts/${alertId}/generate-dunning`,
+      query: ({ alertId, promptOptions }) => ({
+        url: `/ai/alerts/${alertId}/draft`,
         method: 'POST',
+        body: {
+          tone: promptOptions?.tone,
+          scenario: promptOptions?.scenario,
+          customer_name: promptOptions?.customerName,
+          room_number: promptOptions?.roomNumber,
+          amount_due: promptOptions?.amountDue,
+          days_overdue: promptOptions?.daysOverdue,
+          days_until_expiry: promptOptions?.daysUntilExpiry,
+        },
       }),
       transformResponse: (res: any, _meta, arg) => {
         const { alertId, promptOptions } = arg;
-        let bodyText = res.message_body || '';
-        if (promptOptions.tone === 'STRICT') {
-          bodyText = `[ĐÔN ĐỐC NGHIÊM NGHỊ]\nKính gửi Quý cư dân ${res.recipient_name || promptOptions.customerName || 'khách thuê'},\n\nKhoản thanh toán căn hộ ${promptOptions.roomNumber || 'P101'} hiện đã quá hạn ${res.days_overdue || promptOptions.daysOverdue || 0} ngày với tổng số tiền ${Number(res.amount_due || promptOptions.amountDue || 0).toLocaleString()} VNĐ.\n\nĐề nghị Quý cư dân khẩn trương hoàn tất thanh toán trước 18:00 ngày mai để tránh phát sinh chế tài tạm ngưng cung cấp dịch vụ tiện ích theo quy định tại Hợp đồng thuê.\n\nTrân trọng!\nBan Quản Trị Tòa Nhà.`;
-        } else if (promptOptions.tone === 'CONCISE_SMS') {
-          bodyText = res.sms_body || `[Dwell] Nhac thanh toan phong ${promptOptions.roomNumber || 'P101'}: ${Number(res.amount_due || promptOptions.amountDue || 0).toLocaleString()}d. Qua han ${res.days_overdue || promptOptions.daysOverdue || 0} ngay. Vui long chuyen khoan qua VietQR. Hotline 19008899.`;
-        } else if (!bodyText) {
-          bodyText = `Kính gửi Anh/Chị ${res.recipient_name || promptOptions.customerName || 'Cư dân'},\n\nBan Quản Lý Tòa Nhà xin gửi lời chào trân trọng và thông báo kỳ thanh toán cước phí căn hộ ${promptOptions.roomNumber || 'P101'} số tiền ${Number(res.amount_due || promptOptions.amountDue || 0).toLocaleString()} VNĐ. Quý cư dân vui lòng kiểm tra và quét mã VietQR Napas247 đính kèm để gạch nợ tự động nhé.\n\nTrân trọng cảm ơn sự hợp tác của Quý cư dân!`;
-        }
+        const bodyText = res.ai_draft || res.message_body || '';
 
         return {
           id: alertId,
           alertCode: `ALT-${String(alertId).padStart(4, '0')}`,
-          alertType: 'OVERDUE_DEBT',
-          referenceId: res.receivable_id || alertId,
-          referenceCode: `REF-${res.receivable_id || alertId}`,
+          alertType: (res.alert_type as any) || (promptOptions.scenario === 'CONTRACT_RENEWAL' ? 'EXPIRED_CONTRACT' : 'OVERDUE_DEBT'),
+          referenceId: res.reference_id || alertId,
+          referenceCode: `REF-${res.reference_id || alertId}`,
           targetName: res.recipient_name || promptOptions.customerName || 'Cư dân',
           targetPhone: res.recipient_phone || '0912.888.999',
           roomNumber: promptOptions.roomNumber || 'P101',
@@ -126,7 +128,7 @@ export const alertApi = baseApi.injectEndpoints({
           aiDraftContent: {
             scenario: promptOptions.scenario || 'OVERDUE_WITH_PENALTY',
             tone: promptOptions.tone || 'EMPATHETIC',
-            subject: res.email_subject || `Thông báo thanh toán cước phí căn ${promptOptions.roomNumber || 'P101'}`,
+            subject: res.email_subject || `Thông báo căn ${promptOptions.roomNumber || 'P101'}`,
             body: bodyText,
             generatedAt: new Date().toISOString(),
           },

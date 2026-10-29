@@ -53,3 +53,9 @@ frontend/dist/
 
 # IDE
 .vscode/
+*.log
+~$*
+.slide-build/
+output/
+scratch/
+!scratch/test_output.docx

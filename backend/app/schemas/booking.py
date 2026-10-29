@@ -20,6 +20,9 @@ class BookingResponse(BaseModel):
     customer_phone: str
     customer_email: str | None
     apartment_id: int
+    room_number: str | None = None
+    building_name: str | None = None
+    monthly_price: Decimal | None = None
     check_in_date: date
     deposit_amount: Decimal
     status: str
