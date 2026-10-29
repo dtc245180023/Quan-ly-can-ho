@@ -1,5 +1,6 @@
 import time
 from io import BytesIO
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
 from google import genai
 from google.genai import types
@@ -12,6 +13,7 @@ from app.core.config import settings
 
 
 _cached_gemini_client = None
+_rag_executor = ThreadPoolExecutor(max_workers=8)
 
 
 def get_gemini_client():
@@ -626,14 +628,28 @@ def generate_rag_answer(
     contexts: list[dict],
     fast_mode: bool = False
 ):
+    def _build_context_answer():
+        if contexts:
+            first = contexts[0]
+            ans = (
+                f"**Theo quy định tại {first['document_name']} (Mục {first['chunk_index']}):**\n\n"
+                f"{first['content']}\n\n"
+            )
+            if len(contexts) > 1:
+                second = contexts[1]
+                ans += (
+                    f"**Bổ sung từ Mục {second['chunk_index']}:**\n"
+                    f"{second['content']}\n\n"
+                )
+            ans += (
+                f"*Nguồn trích dẫn: {first['document_name']} • Mục {first['chunk_index']}. "
+                f"Nếu Quý cư dân cần hỗ trợ thêm thông tin hoặc giải đáp chi tiết, vui lòng liên hệ trực tiếp Ban Quản Lý tòa nhà nhé!*"
+            )
+            return ans
+        return "Nội quy không đề cập đến vấn đề này. Vui lòng liên hệ nhân viên hỗ trợ."
+
     if fast_mode and contexts:
-        first = contexts[0]
-        return (
-            f"**Theo quy định tại {first['document_name']} (Mục {first['chunk_index']}):**\n\n"
-            f"{first['content']}\n\n"
-            f"*Nguồn trích dẫn: {first['document_name']} • Mục {first['chunk_index']}. "
-            f"Nếu Quý cư dân cần hỗ trợ thêm thông tin hoặc giải đáp chi tiết, vui lòng liên hệ trực tiếp Ban Quản Lý tòa nhà nhé!*"
-        )
+        return _build_context_answer()
 
     context_text = ""
 
@@ -646,21 +662,15 @@ def generate_rag_answer(
         )
 
     prompt = f"""
-Bạn là chatbot tra cứu nội quy tòa nhà.
+Bạn là chatbot tra cứu nội quy tòa nhà Dwell Living chuyên nghiệp và chu đáo.
 
 QUY TẮC:
 
-1. Chỉ trả lời dựa trên NGỮ CẢNH.
-2. Không sử dụng kiến thức bên ngoài.
-3. Không suy đoán.
-4. Không bịa đặt.
-5. Nếu ngữ cảnh không đủ, trả lời:
-
-"Nội quy không đề cập đến vấn đề này.
-Vui lòng liên hệ nhân viên hỗ trợ."
-
-6. Khi trả lời phải nêu nguồn tài liệu
-và đoạn được sử dụng.
+1. Trả lời rõ ràng, chuẩn xác, ân cần và dựa trên NGỮ CẢNH được cung cấp.
+2. Không sử dụng kiến thức bên ngoài, không suy đoán bịa đặt.
+3. Nếu ngữ cảnh không đủ, trả lời:
+"Nội quy không đề cập đến vấn đề này. Vui lòng liên hệ Ban Quản Lý tòa nhà để được hỗ trợ chi tiết nhé!"
+4. Khi trả lời phải nêu nguồn tài liệu và đoạn mục được sử dụng để cư dân dễ đối chiếu.
 
 NGỮ CẢNH:
 
@@ -672,24 +682,22 @@ CÂU HỎI:
 """
 
     try:
-        return generate_text(prompt)
+        # Non-blocking gọi LLM với timeout tối đa 1.2s
+        future = _rag_executor.submit(generate_text, prompt)
+        res = future.result(timeout=1.2)
+        if res and res.strip():
+            return res.strip()
+        return _build_context_answer()
     except Exception:
-        if contexts:
-            first = contexts[0]
-            return (
-                f"**Theo quy định tại {first['document_name']} (Mục {first['chunk_index']}):**\n\n"
-                f"{first['content']}\n\n"
-                f"*Nguồn trích dẫn: {first['document_name']} • Mục {first['chunk_index']}. "
-                f"Nếu Quý cư dân cần hỗ trợ thêm thông tin hoặc giải đáp chi tiết, vui lòng liên hệ trực tiếp Ban Quản Lý tòa nhà nhé!*"
-            )
-        return "Nội quy không đề cập đến vấn đề này. Vui lòng liên hệ nhân viên hỗ trợ."
+        # Gemini quá 1.2s hoặc lỗi: chuyển ngay tức thì sang context chunk (<0.0001s)
+        return _build_context_answer()
 
 
 # =========================================================
 # TRỢ LÝ AI TOÀN NĂNG DWELL LIVING
 # =========================================================
 def generate_ai_chat_answer(question: str, fast_mode: bool = False) -> str:
-    # 1. Gọi trực tiếp Google Gemini AI nếu không bật fast_mode và có API Key
+    # 1. Gọi trực tiếp Google Gemini AI nếu không bật fast_mode và có API Key (timeout 1.2s non-blocking)
     if not fast_mode and settings.gemini_api_key and settings.gemini_api_key.strip():
         prompt = f"""
 Bạn là Trợ lý AI chuyên nghiệp, tận tâm và chu đáo của Ban Quản Lý Tòa Nhà Căn Hộ Dwell Living.
@@ -717,7 +725,8 @@ QUY TẮC TRẢ LỜI:
 - Tuyệt đối không bịa đặt các thông tin trái ngược với quy chế trên.
 """
         try:
-            res = generate_text(prompt)
+            future = _rag_executor.submit(generate_text, prompt)
+            res = future.result(timeout=1.2)
             if res and res.strip():
                 return res.strip()
         except Exception:

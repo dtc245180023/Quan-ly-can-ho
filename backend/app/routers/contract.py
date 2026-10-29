@@ -835,14 +835,17 @@ def renew_contract(
             )
         )
 
-    # 4. Kiểm tra tiền thuê
-    if data.rental_price <= 0:
+    # 4. Kiểm tra tiền thuê và tiền cọc
+    rent_price = data.rental_price or data.new_rental_price or old_contract.rental_price
+    dep_amount = data.deposit_amount if data.deposit_amount is not None else old_contract.deposit_amount
+
+    if rent_price <= 0:
         raise HTTPException(
             status_code=400,
             detail="Giá thuê phải lớn hơn 0"
         )
 
-    if data.deposit_amount < 0:
+    if dep_amount < 0:
         raise HTTPException(
             status_code=400,
             detail="Tiền cọc không hợp lệ"
@@ -852,7 +855,7 @@ def renew_contract(
     if has_schedule_conflict(
         db,
         old_contract.apartment_id,
-        data.new_start_date,
+        renewal_start_date,
         data.new_end_date
     ):
         raise HTTPException(
@@ -870,8 +873,8 @@ def renew_contract(
         start_date=renewal_start_date,
         end_date=data.new_end_date,
 
-        rental_price=data.rental_price,
-        deposit_amount=data.deposit_amount,
+        rental_price=rent_price,
+        deposit_amount=dep_amount,
 
         created_by=current_user.id,
 

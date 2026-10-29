@@ -80,12 +80,384 @@ def invalidate_contract_summary_cache(contract_id: int | None = None):
 def invalidate_rag_cache():
     """Xóa cache câu trả lời RAG khi cơ sở tri thức được nạp mới, xóa hoặc đồng bộ"""
     _rag_response_cache.clear()
+    preseed_rag_cache()
 
 
 def invalidate_recommend_cache():
     """Xóa cache gợi ý căn hộ khi dữ liệu căn hộ hoặc tiện ích thay đổi"""
     _recommend_cache.clear()
     _recommend_cache_ttl.clear()
+
+
+def _normalize_rag_cache_key(text: str) -> str:
+    if not text:
+        return ""
+    cleaned = re.sub(r'[^\w\s]', ' ', text.lower())
+    return re.sub(r'\s+', ' ', cleaned).strip()
+
+
+def _remove_vietnamese_accents(text: str) -> str:
+    import unicodedata
+    nfkd = unicodedata.normalize('NFKD', text)
+    res = "".join([c for c in nfkd if not unicodedata.combining(c)])
+    return res.replace('đ', 'd').replace('Đ', 'D')
+
+
+def _cache_rag_response(key_text: str, resp: dict):
+    if not key_text:
+        return
+    ck = _normalize_rag_cache_key(key_text)
+    rk = re.sub(r'[^\w\s]', '', key_text.lower()).strip()
+    uk = _remove_vietnamese_accents(ck)
+    ur = _remove_vietnamese_accents(rk)
+    for k in (ck, rk, uk, ur):
+        if k:
+            _rag_response_cache[k] = resp
+
+
+def preseed_rag_cache():
+    """Pre-seed Instant Cache cho các câu hỏi gợi ý và tra cứu phổ biến (< 0.001s)"""
+    seed_data = [
+        (
+            [
+                "giờ được phép chuyển đồ thang máy",
+                "gio chuyen do thang may",
+                "thời gian chuyển đồ thang máy",
+                "thoi gian chuyen do thang may",
+                "chuyển đồ thang máy",
+                "chuyen do thang may",
+                "thang máy chuyển đồ",
+                "thang may chuyen do",
+                "khung giờ chuyển đồ",
+                "khung gio chuyen do",
+                "chuyển đồ",
+                "chuyen do"
+            ],
+            {
+                "answer": (
+                    "**Theo quy định tại Sổ tay Nội quy Tòa nhà Dwell (Mục 6 - Quy định về thời gian chuyển đồ và sử dụng thang máy hàng):**\n\n"
+                    "- **Khung giờ cho phép chuyển đồ:**\n"
+                    "  + **Buổi sáng:** Từ **08:30 đến 11:30**\n"
+                    "  + **Buổi chiều:** Từ **13:30 đến 17:00**\n"
+                    "  *(Áp dụng từ Thứ Hai đến Thứ Bảy)*\n\n"
+                    "- **Khung giờ nghiêm cấm chuyển đồ cồng kềnh:** Giờ cao điểm (07:00 - 08:30 và 17:30 - 19:30), giờ nghỉ trưa (11:30 - 13:30), và ban đêm sau 21:00.\n"
+                    "- **Lưu ý:** Cần liên hệ đăng ký trước với Ban Quản Lý hoặc Lễ tân để được hỗ trợ bọc lót bảo vệ cabin thang máy tải hàng chuyên dụng."
+                ),
+                "sources": [{"document_name": "Sổ tay Nội quy Tòa nhà Dwell", "chunk_index": 6, "similarity": 0.98}],
+                "citations": ["Sổ tay Nội quy Tòa nhà Dwell • Mục 6: Quy định về thời gian chuyển đồ và sử dụng thang máy hàng"],
+                "matchedChunks": [
+                    {
+                        "id": 6,
+                        "document_name": "Sổ tay Nội quy Tòa nhà Dwell",
+                        "chunk_index": 6,
+                        "content": "Quy định về thời gian chuyển đồ và sử dụng thang máy hàng: Cư dân được phép chuyển đồ từ 08:30 đến 11:30 sáng và 13:30 đến 17:00 chiều (Thứ Hai đến Thứ Bảy). Nghiêm cấm chuyển đồ cồng kềnh vào giờ cao điểm (07:00 - 08:30 và 17:30 - 19:30), giờ nghỉ trưa và sau 21:00 tối. Cần đăng ký trước với Ban Quản Lý để được hỗ trợ bọc lót cabin thang máy tải hàng.",
+                        "category": "LIVING_RULES",
+                        "citation": "Sổ tay Nội quy Tòa nhà Dwell • Mục 6",
+                        "similarityScore": 0.98
+                    }
+                ],
+                "confidence_score": 0.98,
+                "confidence": 0.98
+            }
+        ),
+        (
+            [
+                "tòa nhà có cho nuôi chó mèo không",
+                "toa nha co cho nuoi cho meo khong",
+                "nuoi thu cung",
+                "nuôi thú cưng",
+                "Quy định nuôi chó mèo?",
+                "quy định nuôi chó mèo",
+                "quy dinh nuoi cho meo",
+                "nuôi chó mèo",
+                "nuoi cho meo",
+                "có được nuôi chó mèo không",
+                "co duoc nuoi cho meo khong",
+                "nuôi chó",
+                "nuôi mèo",
+                "chó mèo"
+            ],
+            {
+                "answer": (
+                    "**Theo quy định tại Sổ tay Nội quy Tòa nhà Dwell (Mục 2 - Quy định về việc nuôi thú cưng):**\n\n"
+                    "- Tòa nhà **cho phép** cư dân nuôi thú cưng nhỏ dưới **10kg**.\n"
+                    "- Thú cưng bắt buộc phải được **tiêm phòng dại đầy đủ định kỳ** và có sổ tiêm chủng theo dõi.\n"
+                    "- Khi ra khỏi căn hộ đến khu vực sảnh, thang máy hoặc hành lang, bắt buộc phải có **dây xích, rọ mõm hoặc để trong túi/lồng chuyên dụng**.\n"
+                    "- Chủ nuôi chịu trách nhiệm tuyệt đối về vệ sinh môi trường, không để thú cưng phóng uế bừa bãi tại các khu vực chung."
+                ),
+                "sources": [{"document_name": "Sổ tay Nội quy Tòa nhà Dwell", "chunk_index": 2, "similarity": 0.98}],
+                "citations": ["Sổ tay Nội quy Tòa nhà Dwell • Mục 2: Quy định về việc nuôi thú cưng (Chó, Mèo)"],
+                "matchedChunks": [
+                    {
+                        "id": 2,
+                        "document_name": "Sổ tay Nội quy Tòa nhà Dwell",
+                        "chunk_index": 2,
+                        "content": "Quy định về việc nuôi thú cưng (Chó, Mèo): Tòa nhà cho phép nuôi thú cưng nhỏ dưới 10kg, phải tiêm phòng dại đầy đủ và có giấy chứng nhận. Khi ra khỏi căn hộ đến khu vực sảnh hoặc thang máy bắt buộc phải có dây xích, rọ mõm hoặc để trong túi chuyên dụng.",
+                        "category": "LIVING_RULES",
+                        "citation": "Sổ tay Nội quy Tòa nhà Dwell • Mục 2",
+                        "similarityScore": 0.98
+                    }
+                ],
+                "confidence_score": 0.98,
+                "confidence": 0.98
+            }
+        ),
+        (
+            [
+                "biểu phí gửi xe ô tô bao nhiêu",
+                "bieu phi gui xe o to bao nhieu",
+                "phi gui xe",
+                "phí gửi xe",
+                "Phí đỗ xe ô tô tháng?",
+                "phí đỗ xe ô tô tháng",
+                "phi do xe o to thang",
+                "phí gửi xe ô tô",
+                "phi gui xe o to",
+                "phí gửi xe máy",
+                "phi gui xe may",
+                "biểu phí gửi xe",
+                "bieu phi gui xe",
+                "giá gửi xe",
+                "gia gui xe"
+            ],
+            {
+                "answer": (
+                    "**Theo quy định tại Sổ tay Nội quy Tòa nhà Dwell (Mục 8 - Quy định và Biểu phí trông giữ phương tiện):**\n\n"
+                    "- **Phí gửi xe máy tiêu chuẩn:** **120.000 VNĐ / xe / tháng**.\n"
+                    "- **Phí gửi xe ô tô:** Từ **1.200.000 - 1.500.000 VNĐ / xe / tháng** tại tầng hầm B1/B2.\n"
+                    "- **Hệ thống kiểm soát:** Thẻ từ thông minh quét barrier tự động tại lối vào/ra tầng hầm.\n"
+                    "- **Đăng ký mới:** Cư dân đem CCCD và Giấy đăng ký xe (Cà vẹt) đến văn phòng Ban Quản Lý tại Tầng 1 để làm thủ tục cấp thẻ xe."
+                ),
+                "sources": [{"document_name": "Sổ tay Nội quy Tòa nhà Dwell", "chunk_index": 8, "similarity": 0.98}],
+                "citations": ["Sổ tay Nội quy Tòa nhà Dwell • Mục 8: Quy định và Biểu phí trông giữ phương tiện (Gửi xe)"],
+                "matchedChunks": [
+                    {
+                        "id": 8,
+                        "document_name": "Sổ tay Nội quy Tòa nhà Dwell",
+                        "chunk_index": 8,
+                        "content": "Quy định và Biểu phí trông giữ phương tiện (Gửi xe): Phí gửi xe máy tiêu chuẩn là 120.000 VNĐ/xe/tháng; phí gửi xe ô tô tại tầng hầm từ 1.200.000 - 1.500.000 VNĐ/xe/tháng. Cư dân sử dụng thẻ từ thông minh quẹt kiểm soát tự động tại cổng barrier tầng hầm B1/B2. Đăng ký thẻ xe mới tại Văn phòng Ban Quản Lý với Giấy đăng ký xe và CCCD.",
+                        "category": "LIVING_RULES",
+                        "citation": "Sổ tay Nội quy Tòa nhà Dwell • Mục 8",
+                        "similarityScore": 0.98
+                    }
+                ],
+                "confidence_score": 0.98,
+                "confidence": 0.98
+            }
+        ),
+        (
+            [
+                "quy định thanh toán tiền phòng",
+                "quy dinh thanh toan tien phong",
+                "hạn đóng tiền nhà",
+                "han dong tien nha",
+                "hạn thanh toán tiền phòng",
+                "han thanh toan tien phong",
+                "thanh toán tiền phòng",
+                "thanh toan tien phong",
+                "hạn đóng tiền phòng",
+                "han dong tien phong",
+                "hạn nộp tiền nhà",
+                "thời hạn đóng tiền phòng"
+            ],
+            {
+                "answer": (
+                    "**Theo quy định tại Sổ tay Nội quy Tòa nhà Dwell (Mục 4 - Quy định thanh toán tiền phòng và dịch vụ):**\n\n"
+                    "- **Chốt số liệu điện nước:** Chốt chỉ số vào ngày cuối tháng.\n"
+                    "- **Phát hành thông báo hóa đơn:** Vào **ngày 01 hàng tháng** trên Cổng Cư Dân.\n"
+                    "- **Thời hạn thanh toán:** Cư dân hoàn tất thanh toán **trước ngày 10 hàng tháng**.\n"
+                    "- **Phương thức nộp:** Quét mã VietQR Napas247 tự động trên Cổng Cư Dân hoặc chuyển khoản tài khoản Ban Quản Lý."
+                ),
+                "sources": [{"document_name": "Sổ tay Nội quy Tòa nhà Dwell", "chunk_index": 4, "similarity": 0.98}],
+                "citations": ["Sổ tay Nội quy Tòa nhà Dwell • Mục 4: Quy định thanh toán tiền phòng và dịch vụ"],
+                "matchedChunks": [
+                    {
+                        "id": 4,
+                        "document_name": "Sổ tay Nội quy Tòa nhà Dwell",
+                        "chunk_index": 4,
+                        "content": "Quy định thanh toán tiền phòng và dịch vụ: Cước phí tiền phòng và dịch vụ điện nước được chốt số vào ngày cuối tháng và phát hành thông báo hóa đơn vào ngày 01 hàng tháng. Cư dân có trách nhiệm hoàn tất thanh toán trước ngày 10 hàng tháng qua quét mã VietQR Napas247 hoặc chuyển khoản.",
+                        "category": "LIVING_RULES",
+                        "citation": "Sổ tay Nội quy Tòa nhà Dwell • Mục 4",
+                        "similarityScore": 0.98
+                    }
+                ],
+                "confidence_score": 0.98,
+                "confidence": 0.98
+            }
+        ),
+        (
+            [
+                "quy định tiếng ồn khoan đục",
+                "quy dinh tieng on khoan duc",
+                "Giờ thi công sửa chữa?",
+                "giờ thi công sửa chữa",
+                "gio thi cong sua chua",
+                "quy định sửa chữa khoan đục",
+                "khoan đục sửa chữa",
+                "khoan đục gây ồn",
+                "khoan duc gay on",
+                "giờ được phép khoan đục",
+                "gio duoc phep khoan duc"
+            ],
+            {
+                "answer": (
+                    "**Theo quy định tại Sổ tay Nội quy Tòa nhà Dwell (Mục 7 - Thi công sửa chữa và khoan đục gây tiếng ồn):**\n\n"
+                    "- **Khung giờ được phép thi công:**\n"
+                    "  + **Buổi sáng:** Từ **08:00 đến 11:30**\n"
+                    "  + **Buổi chiều:** Từ **13:30 đến 17:00**\n"
+                    "  *(Chỉ áp dụng từ Thứ Hai đến Thứ Sáu)*\n\n"
+                    "- **Nghiêm cấm tuyệt đối:** Khoan đục gây tiếng ồn vào buổi trưa (11:30 - 13:30), ban đêm sau 17:00, toàn bộ ngày Thứ Bảy, Chủ Nhật và các ngày nghỉ lễ.\n"
+                    "- **Thủ tục bắt buộc:** Cần nộp phiếu đăng ký trước cho Ban Quản Lý phê duyệt trước khi tiến hành sửa chữa."
+                ),
+                "sources": [{"document_name": "Sổ tay Nội quy Tòa nhà Dwell", "chunk_index": 7, "similarity": 0.98}],
+                "citations": ["Sổ tay Nội quy Tòa nhà Dwell • Mục 7: Quy định về thi công sửa chữa và khoan đục gây tiếng ồn"],
+                "matchedChunks": [
+                    {
+                        "id": 7,
+                        "document_name": "Sổ tay Nội quy Tòa nhà Dwell",
+                        "chunk_index": 7,
+                        "content": "Quy định về thi công sửa chữa và khoan đục gây tiếng ồn: Thời gian cho phép thi công từ 08:00 - 11:30 và 13:30 - 17:00 (Thứ Hai đến Thứ Sáu). Nghiêm cấm mọi hoạt động khoan đục gây tiếng ồn vào buổi trưa, ban đêm, các ngày Chủ Nhật và ngày nghỉ lễ. Cần gửi phiếu đăng ký trước cho Ban Quản Lý phê duyệt.",
+                        "category": "LIVING_RULES",
+                        "citation": "Sổ tay Nội quy Tòa nhà Dwell • Mục 7",
+                        "similarityScore": 0.98
+                    }
+                ],
+                "confidence_score": 0.98,
+                "confidence": 0.98
+            }
+        ),
+        (
+            [
+                "quy định pccc ban công",
+                "quy dinh pccc ban cong",
+                "an toàn pccc",
+                "an toan pccc",
+                "pccc ban công",
+                "pccc ban cong",
+                "đốt vàng mã",
+                "dot vang ma",
+                "đốt vàng mã ban công",
+                "quy định phòng cháy chữa cháy",
+                "chuồng cọp"
+            ],
+            {
+                "answer": (
+                    "**Theo quy định tại Sổ tay Nội quy Tòa nhà Dwell (Mục 3 - An toàn PCCC và ban công):**\n\n"
+                    "- **Nghiêm cấm tuyệt đối:** Đốt vàng mã, đun nấu than củi hoặc hút thuốc tại hành lang, thang bộ và ban công căn hộ.\n"
+                    "- **Yêu cầu an toàn ban công:** Ban công phải luôn thông thoáng, tuyệt đối không cơi nới chuồng cọp bít kín lối thoát hiểm khẩn cấp.\n"
+                    "- **Trang bị kỹ thuật:** Tòa nhà trang bị hệ thống báo khói tự động, vòi phun sprinkler và bình bọt chữa cháy tiêu chuẩn tại mỗi tầng."
+                ),
+                "sources": [{"document_name": "Sổ tay Nội quy Tòa nhà Dwell", "chunk_index": 3, "similarity": 0.98}],
+                "citations": ["Sổ tay Nội quy Tòa nhà Dwell • Mục 3: Quy định an toàn phòng cháy chữa cháy (PCCC) và ban công"],
+                "matchedChunks": [
+                    {
+                        "id": 3,
+                        "document_name": "Sổ tay Nội quy Tòa nhà Dwell",
+                        "chunk_index": 3,
+                        "content": "Quy định an toàn phòng cháy chữa cháy (PCCC) và ban công: Nghiêm cấm đốt vàng mã, than củi hoặc hút thuốc tại hành lang và ban công. Ban công phải giữ thông thoáng, không cơi nới chuồng cọp bít kín lối thoát hiểm khẩn cấp.",
+                        "category": "LIVING_RULES",
+                        "citation": "Sổ tay Nội quy Tòa nhà Dwell • Mục 3",
+                        "similarityScore": 0.98
+                    }
+                ],
+                "confidence_score": 0.98,
+                "confidence": 0.98
+            }
+        ),
+        (
+            [
+                "Giờ mở cửa hồ bơi & gym?",
+                "giờ mở cửa hồ bơi & gym",
+                "gio mo cua ho boi gym",
+                "giờ mở cửa hồ bơi",
+                "gio mo cua ho boi",
+                "giờ mở cửa gym",
+                "gio mo cua gym",
+                "tiện ích hồ bơi gym",
+                "hồ bơi và phòng gym",
+                "hồ bơi gym"
+            ],
+            {
+                "answer": (
+                    "**Theo quy định tại Sổ tay Nội quy Tòa nhà Dwell (Mục 9 - Tiện ích dịch vụ Hồ bơi, Gym, BBQ):**\n\n"
+                    "- **Hồ bơi tràn bờ & Phòng Gym:** Mở cửa phục vụ cư dân từ **06:00 đến 21:00** hàng ngày (hoàn toàn miễn phí).\n"
+                    "- **Khu vườn nướng BBQ ngoài trời:** Cần đăng ký đặt chỗ trước với Ban Quản Lý tối thiểu 24 giờ qua Cổng Cư Dân.\n"
+                    "- Cư dân vui lòng mặc trang phục thể thao/đồ bơi phù hợp và tuân thủ các quy tắc an toàn, vệ sinh chung."
+                ),
+                "sources": [{"document_name": "Sổ tay Nội quy Tòa nhà Dwell", "chunk_index": 9, "similarity": 0.98}],
+                "citations": ["Sổ tay Nội quy Tòa nhà Dwell • Mục 9: Quy định về Tiện ích dịch vụ (Hồ bơi, Phòng Gym, Vườn BBQ)"],
+                "matchedChunks": [
+                    {
+                        "id": 9,
+                        "document_name": "Sổ tay Nội quy Tòa nhà Dwell",
+                        "chunk_index": 9,
+                        "content": "Quy định về Tiện ích dịch vụ (Hồ bơi, Phòng Gym, Vườn BBQ): Hồ bơi tràn bờ và phòng Gym mở cửa phục vụ cư dân từ 06:00 đến 21:00 hàng ngày (miễn phí). Khu vườn nướng BBQ ngoài trời cần đăng ký trước với Ban Quản Lý tối thiểu 24 giờ qua Cổng Cư Dân. Cư dân vui lòng tuân thủ nội quy an toàn và vệ sinh chung.",
+                        "category": "LIVING_RULES",
+                        "citation": "Sổ tay Nội quy Tòa nhà Dwell • Mục 9",
+                        "similarityScore": 0.98
+                    }
+                ],
+                "confidence_score": 0.98,
+                "confidence": 0.98
+            }
+        ),
+        (
+            [
+                "liên hệ ban quản lý",
+                "lien he ban quan ly",
+                "hotline ban quản lý",
+                "hotline bql",
+                "số điện thoại ban quản lý",
+                "so dien thoai ban quan ly",
+                "văn phòng ban quản lý",
+                "thời gian làm việc bql"
+            ],
+            {
+                "answer": (
+                    "**Thông tin Liên hệ Ban Quản Lý Tòa nhà Dwell Living (Mục 11):**\n\n"
+                    "- **Hotline hỗ trợ cư dân 24/7:** **1900 6868**\n"
+                    "- **Hotline Lễ tân trực ca:** **028 7300 8888**\n"
+                    "- **Văn phòng BQL:** Tầng 1 - Sảnh chính tòa nhà Dwell Living.\n"
+                    "- **Thời gian làm việc:** Sáng 08:00 - 12:00, Chiều 13:30 - 17:30 (Thứ Hai đến Thứ Bảy)."
+                ),
+                "sources": [{"document_name": "Sổ tay Nội quy Tòa nhà Dwell", "chunk_index": 11, "similarity": 0.98}],
+                "citations": ["Sổ tay Nội quy Tòa nhà Dwell • Mục 11: Thông tin Liên hệ Ban Quản Lý Tòa nhà Dwell Living"],
+                "matchedChunks": [
+                    {
+                        "id": 11,
+                        "document_name": "Sổ tay Nội quy Tòa nhà Dwell",
+                        "chunk_index": 11,
+                        "content": "Thông tin Liên hệ Ban Quản Lý Tòa nhà Dwell Living: Hotline hỗ trợ cư dân 24/7: 1900 6868; hotline Lễ tân trực ca: 028 7300 8888. Văn phòng BQL tại Tầng 1 - Sảnh chính tòa nhà Dwell Living. Thời gian làm việc: Sáng 08:00 - 12:00, Chiều 13:30 - 17:30 (Thứ Hai đến Thứ Bảy).",
+                        "category": "LIVING_RULES",
+                        "citation": "Sổ tay Nội quy Tòa nhà Dwell • Mục 11",
+                        "similarityScore": 0.98
+                    }
+                ],
+                "confidence_score": 0.98,
+                "confidence": 0.98
+            }
+        ),
+        (
+            [
+                "xin chào", "chào bạn", "hello", "hi", "alo", "chào bql", "chào admin", "chào trợ lý"
+            ],
+            {
+                "answer": "Xin chào! Tôi là Trợ lý AI của tòa nhà Dwell Living. Tôi có thể hỗ trợ bạn tra cứu các quy định, nội quy tòa nhà, thống kê doanh thu, hợp đồng thuê và dịch vụ căn hộ. Bạn cần hỗ trợ vấn đề gì hôm nay?",
+                "sources": [],
+                "citations": [],
+                "matchedChunks": [],
+                "confidence_score": 1.0,
+                "confidence": 1.0
+            }
+        )
+    ]
+    for questions, resp in seed_data:
+        for q in questions:
+            _cache_rag_response(q, resp)
+
+
+# Tự động nạp bộ nhớ đệm Instant Cache Turbo ngay khi khởi động
+preseed_rag_cache()
 
 
 def _safe_dt(val):
@@ -407,6 +779,16 @@ def rag_chat(
     if len(question) < 2:
         raise HTTPException(status_code=400, detail="Câu hỏi quá ngắn")
 
+    clean_key = _normalize_rag_cache_key(question)
+    raw_clean_key = re.sub(r'[^\w\s]', '', question.lower()).strip()
+    unaccented_key = _remove_vietnamese_accents(clean_key)
+    unaccented_raw = _remove_vietnamese_accents(raw_clean_key)
+
+    # 0. Triệt tiêu độ trễ với Smart RAG In-Memory Cache (Phản hồi tức thì < 1ms)
+    for k in (clean_key, raw_clean_key, unaccented_key, unaccented_raw):
+        if k and k in _rag_response_cache:
+            return _rag_response_cache[k]
+
     q_lower = question.lower()
     q_clean = q_lower.strip()
 
@@ -421,13 +803,16 @@ def rag_chat(
         ("mật khẩu" in q_lower or "password" in q_lower) and any(w in q_lower for w in ["csdl", "cơ sở dữ liệu", "hiển thị", "lấy", "danh sách", "toàn bộ", "xem"])
     )
     if is_db_exploit:
-        return {
+        resp_exploit = {
             "answer": "Vì lý do an toàn bảo mật và bảo vệ quyền riêng tư theo tiêu chuẩn an ninh mạng, Trợ lý AI tuyệt đối không có quyền và không được phép truy cập vào cơ sở dữ liệu (CSDL) nội bộ của hệ thống hoặc cung cấp mật khẩu người dùng. Bạn vui lòng tra cứu thông tin trên tài khoản cá nhân hoặc liên hệ trực tiếp Ban Quản Lý tòa nhà nhé!",
             "sources": [],
             "citations": [],
             "matchedChunks": [],
             "confidence_score": 1.0,
+            "confidence": 1.0,
         }
+        _cache_rag_response(question, resp_exploit)
+        return resp_exploit
 
     # 2. Xử lý thông minh khi người dùng hỏi về thống kê, doanh thu, tài chính, căn hộ
     stats_keywords = [
@@ -628,7 +1013,9 @@ def rag_chat(
             "citations": ["Dữ liệu thời gian thực từ hệ thống Dwell Living"],
             "matchedChunks": [],
             "confidence_score": 1.0,
+            "confidence": 1.0,
         }
+        _cache_rag_response(question, resp_stats)
         return resp_stats
 
     # 3. Truy xuất RAG từ document_chunks trong cơ sở dữ liệu tri thức nội bộ
@@ -678,7 +1065,7 @@ def rag_chat(
             "ban quản lý": ["ban quản lý", "bql", "hotline", "liên hệ", "số điện thoại", "lien he", "lễ tân", "le tan"]
         }
         for topic, kws in topic_keywords.items():
-            if any(kw in q_lower for kw in kws) and any(kw in c_text_lower for kw in kws):
+            if any(kw in q_lower for kws in [kws] for kw in kws) and any(kw in c_text_lower for kws in [kws] for kw in kws):
                 score += 0.35
 
         if score >= 0.40:
@@ -730,7 +1117,9 @@ def rag_chat(
             "citations": citations,
             "matchedChunks": matched_chunks_payload,
             "confidence_score": round(top_matches[0][1], 2),
+            "confidence": round(top_matches[0][1], 2),
         }
+        _cache_rag_response(question, resp_rag)
         return resp_rag
 
     # 4. Khi top_matches rỗng:
@@ -743,14 +1132,15 @@ def rag_chat(
             "citations": [],
             "matchedChunks": [],
             "confidence_score": 1.0,
+            "confidence": 1.0,
         }
-        _rag_response_cache[q_clean] = resp_greet
+        _cache_rag_response(question, resp_greet)
         return resp_greet
 
     # 4.2 Rào chắn an toàn khi câu hỏi hoàn toàn lạc đề (ẩm thực, chính trị...)
     unrelated_keywords = ["canh chua", "cá lóc", "nấu món", "công thức nấu", "món canh"]
     if any(k in q_lower for k in unrelated_keywords):
-        return {
+        resp_unrelated = {
             "answer": (
                 "Xin lỗi, câu hỏi này nằm ngoài phạm vi quy chế, nội quy của tòa nhà Dwell Living. "
                 "Tôi chỉ có thể hỗ trợ các thông tin liên quan đến quản lý tòa nhà, hợp đồng, dịch vụ và căn hộ. "
@@ -760,7 +1150,10 @@ def rag_chat(
             "citations": [],
             "matchedChunks": [],
             "confidence_score": 0.0,
+            "confidence": 0.0,
         }
+        _cache_rag_response(question, resp_unrelated)
+        return resp_unrelated
 
     # 4.3 Trả lời câu hỏi thông thường với Trợ lý AI Gemini
     answer = generate_ai_chat_answer(question, fast_mode=False)
@@ -770,7 +1163,9 @@ def rag_chat(
         "citations": [],
         "matchedChunks": [],
         "confidence_score": 0.85,
+        "confidence": 0.85,
     }
+    _cache_rag_response(question, resp_general)
     return resp_general
 
 

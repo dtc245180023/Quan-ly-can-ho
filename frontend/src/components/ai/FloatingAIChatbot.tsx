@@ -10,10 +10,16 @@ import {
   ShieldAlert,
   FileText,
   RotateCcw,
+  Loader2,
+  Zap,
 } from 'lucide-react';
 import { useAskRAGChatbotMutation } from '../../modules/rag_chatbot/services/ragApi';
 import { IDocumentChunk } from '../../types';
 import { AIBotLogo } from '../common/AIBotLogo';
+import {
+  normalizeQuestion,
+  initializeChatbotCache,
+} from '../../modules/rag_chatbot/utils/chatbotCache';
 
 interface ChatMessage {
   id: string;
@@ -22,11 +28,13 @@ interface ChatMessage {
   matchedChunks?: IDocumentChunk[];
   confidence?: number;
   timestamp: string;
+  isCached?: boolean;
 }
 
 export const FloatingAIChatbot: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [inputMessage, setInputMessage] = useState('');
+  const [isThinking, setIsThinking] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: '1',
@@ -35,6 +43,9 @@ export const FloatingAIChatbot: React.FC = () => {
       timestamp: 'Vừa xong',
     },
   ]);
+
+  // Client-side Cache lưu câu trả lời theo câu hỏi đã chuẩn hóa (bỏ dấu câu, viết thường)
+  const cacheRef = useRef<Map<string, any>>(initializeChatbotCache());
 
   const [askRAG, { isLoading }] = useAskRAGChatbotMutation();
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -47,7 +58,7 @@ export const FloatingAIChatbot: React.FC = () => {
     if (isOpen) {
       scrollToBottom();
     }
-  }, [messages, isOpen]);
+  }, [messages, isOpen, isThinking]);
 
   useEffect(() => {
     const handleOpen = () => setIsOpen(true);
@@ -57,7 +68,7 @@ export const FloatingAIChatbot: React.FC = () => {
 
   const handleSend = async (questionText?: string) => {
     const q = questionText || inputMessage.trim();
-    if (!q || isLoading) return;
+    if (!q || isLoading || isThinking) return;
 
     const userMsg: ChatMessage = {
       id: Date.now().toString(),
@@ -69,6 +80,27 @@ export const FloatingAIChatbot: React.FC = () => {
     setMessages((prev) => [...prev, userMsg]);
     setInputMessage('');
 
+    // Chuẩn hóa câu hỏi: bỏ dấu câu, chữ thường, bỏ khoảng trắng thừa
+    const normKey = normalizeQuestion(q);
+
+    // Kiểm tra Client Cache: nếu đã có, hiển thị phản hồi ngay lập tức trong 0ms
+    if (cacheRef.current.has(normKey)) {
+      const cached = cacheRef.current.get(normKey);
+      const aiMsg: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        sender: 'ai',
+        text: cached.text,
+        matchedChunks: cached.matchedChunks,
+        confidence: cached.confidence,
+        timestamp: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+        isCached: true,
+      };
+      setMessages((prev) => [...prev, aiMsg]);
+      return;
+    }
+
+    // Nếu chưa có trong cache, gọi RAG backend và hiển thị spinner/typing dots
+    setIsThinking(true);
     try {
       const response = await askRAG({ question: q }).unwrap();
       const aiMsg: ChatMessage = {
@@ -79,6 +111,15 @@ export const FloatingAIChatbot: React.FC = () => {
         confidence: response.confidence,
         timestamp: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
       };
+
+      // Lưu câu trả lời vào Client Cache để các lần hỏi sau đạt 0ms
+      cacheRef.current.set(normKey, {
+        text: response.answer,
+        matchedChunks: response.matchedChunks,
+        confidence: response.confidence,
+        isCached: true,
+      });
+
       setMessages((prev) => [...prev, aiMsg]);
     } catch {
       setMessages((prev) => [
@@ -90,6 +131,8 @@ export const FloatingAIChatbot: React.FC = () => {
           timestamp: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
         },
       ]);
+    } finally {
+      setIsThinking(false);
     }
   };
 
@@ -204,11 +247,19 @@ export const FloatingAIChatbot: React.FC = () => {
                   )}
 
                   <div
-                    className={`mt-1 text-[9px] text-right ${
-                      msg.sender === 'user' ? 'text-blue-100' : 'text-slate-400'
+                    className={`mt-1.5 flex items-center justify-between gap-2 text-[9px] ${
+                      msg.sender === 'user' ? 'text-blue-100 justify-end' : 'text-slate-400'
                     }`}
                   >
-                    {msg.timestamp}
+                    {msg.sender === 'ai' && msg.isCached ? (
+                      <span className="font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200/60 inline-flex items-center gap-1">
+                        <Zap className="w-2.5 h-2.5 fill-emerald-500 text-emerald-500" />
+                        0ms Cache
+                      </span>
+                    ) : (
+                      <span />
+                    )}
+                    <span>{msg.timestamp}</span>
                   </div>
                 </div>
 
@@ -220,16 +271,22 @@ export const FloatingAIChatbot: React.FC = () => {
               </div>
             ))}
 
-            {isLoading && (
-              <div className="flex gap-2.5 items-center text-xs text-slate-500">
-                <div className="w-7 h-7 rounded-lg bg-sky-50 border border-sky-100 p-0.5 flex items-center justify-center shrink-0 animate-pulse">
-                  <AIBotLogo size="sm" />
+            {(isLoading || isThinking) && (
+              <div className="flex gap-2.5 items-start text-xs text-slate-500 animate-in fade-in duration-200">
+                <div className="w-7 h-7 rounded-lg bg-sky-50 border border-sky-100 p-0.5 flex items-center justify-center shrink-0">
+                  <AIBotLogo size="sm" badge />
                 </div>
-                <div className="bg-white border border-slate-200 rounded-2xl px-4 py-2.5 rounded-bl-none flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-brand-500 animate-bounce" />
-                  <span className="w-2 h-2 rounded-full bg-indigo-500 animate-bounce [animation-delay:0.2s]" />
-                  <span className="w-2 h-2 rounded-full bg-sky-500 animate-bounce [animation-delay:0.4s]" />
-                  <span className="text-[11px] text-slate-400">Trợ lý AI đang trả lời...</span>
+                <div className="bg-white border border-slate-200/90 rounded-2xl px-4 py-2.5 rounded-bl-none shadow-soft flex items-center gap-3">
+                  <div className="flex items-center gap-1.5 py-0.5">
+                    <span className="w-2 h-2 rounded-full bg-brand-500 animate-bounce" />
+                    <span className="w-2 h-2 rounded-full bg-indigo-500 animate-bounce [animation-delay:0.2s]" />
+                    <span className="w-2 h-2 rounded-full bg-sky-500 animate-bounce [animation-delay:0.4s]" />
+                  </div>
+                  <div className="h-3 w-px bg-slate-200" />
+                  <span className="text-[11px] font-medium text-slate-500 flex items-center gap-1.5">
+                    <Loader2 className="w-3.5 h-3.5 text-brand-600 animate-spin" />
+                    Trợ lý AI đang tra cứu...
+                  </span>
                 </div>
               </div>
             )}
@@ -242,8 +299,9 @@ export const FloatingAIChatbot: React.FC = () => {
             {samplePrompts.map((prompt, idx) => (
               <button
                 key={idx}
+                disabled={isLoading || isThinking}
                 onClick={() => handleSend(prompt)}
-                className="whitespace-nowrap text-[11px] bg-white hover:bg-brand-50 hover:text-brand-600 text-slate-700 px-2.5 py-1 rounded-full border border-slate-200 transition-colors shrink-0"
+                className="whitespace-nowrap text-[11px] bg-white hover:bg-brand-50 hover:text-brand-600 text-slate-700 px-2.5 py-1 rounded-full border border-slate-200 transition-colors shrink-0 disabled:opacity-50"
               >
                 {prompt}
               </button>
@@ -268,7 +326,7 @@ export const FloatingAIChatbot: React.FC = () => {
               />
               <button
                 type="submit"
-                disabled={!inputMessage.trim() || isLoading}
+                disabled={!inputMessage.trim() || isLoading || isThinking}
                 className="bg-brand-600 hover:bg-brand-700 text-white p-2.5 rounded-xl disabled:opacity-40 transition-colors shrink-0 shadow-soft"
               >
                 <Send className="w-4 h-4" />

@@ -98,6 +98,7 @@ export const contractApi = baseApi.injectEndpoints({
         method: 'POST',
         body: {
           new_end_date: newEndDate,
+          rental_price: newPrice,
           new_rental_price: newPrice,
         },
       }),

@@ -70,9 +70,9 @@ class ContractResponse(BaseModel):
 class ContractRenewRequest(BaseModel):
     new_start_date: date | None = None
     new_end_date: date
-
-    rental_price: Decimal
-    deposit_amount: Decimal
+    rental_price: Decimal | None = None
+    new_rental_price: Decimal | None = None
+    deposit_amount: Decimal | None = None
 
 
 class TerminateContractRequest(BaseModel):
