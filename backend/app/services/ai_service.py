@@ -60,12 +60,13 @@ def generate_text(
 
     candidate_models = [
         settings.gemini_model,
+        "gemini-2.0-flash",
         "gemini-3.1-flash-lite",
+        "gemini-3.1-flash-lite-preview",
+        "gemini-flash-lite-latest",
         "gemini-3.8-flash",
-        "gemini-3.5-flash-lite",
         "gemini-2.5-flash-lite",
         "gemini-2.5-flash",
-        "gemini-2.0-flash",
         "gemini-1.5-flash",
     ]
     models = []
@@ -657,39 +658,26 @@ def generate_rag_answer(
         context_text += (
             "\n--------------------\n"
             f"Nguồn: {context['document_name']}\n"
-            f"Đoạn: {context['chunk_index']}\n"
+            f"Mục: {context['chunk_index']}\n"
             f"{context['content']}\n"
         )
 
-    prompt = f"""
-Bạn là chatbot tra cứu nội quy tòa nhà Dwell Living chuyên nghiệp và chu đáo.
-
-QUY TẮC:
-
-1. Trả lời rõ ràng, chuẩn xác, ân cần và dựa trên NGỮ CẢNH được cung cấp.
-2. Không sử dụng kiến thức bên ngoài, không suy đoán bịa đặt.
-3. Nếu ngữ cảnh không đủ, trả lời:
-"Nội quy không đề cập đến vấn đề này. Vui lòng liên hệ Ban Quản Lý tòa nhà để được hỗ trợ chi tiết nhé!"
-4. Khi trả lời phải nêu nguồn tài liệu và đoạn mục được sử dụng để cư dân dễ đối chiếu.
-
-NGỮ CẢNH:
-
+    prompt = f"""Bạn là Trợ lý AI chuyên nghiệp và tận tâm của Ban Quản Lý Tòa Nhà Dwell Living.
+Dựa trên thông tin quy chế nội quy sau đây, hãy giải đáp câu hỏi của Quý cư dân một cách rõ ràng, chu đáo và lịch sự.
+NGỮ CẢNH NỘI QUY:
 {context_text}
-
-CÂU HỎI:
-
+CÂU HỎI CỦA CƯ DÂN:
 {question}
-"""
+Hãy trả lời đúng trọng tâm bằng tiếng Việt, có lời chào và văn phong chuyên nghiệp, nêu rõ nguồn quy định."""
 
     try:
-        # Non-blocking gọi LLM với timeout tối đa 1.2s
-        future = _rag_executor.submit(generate_text, prompt)
-        res = future.result(timeout=1.2)
-        if res and res.strip():
-            return res.strip()
+        if settings.gemini_api_key and settings.gemini_api_key.strip():
+            future = _rag_executor.submit(generate_text, prompt)
+            res = future.result(timeout=10.0)
+            if res and res.strip():
+                return res.strip()
         return _build_context_answer()
     except Exception:
-        # Gemini quá 1.2s hoặc lỗi: chuyển ngay tức thì sang context chunk (<0.0001s)
         return _build_context_answer()
 
 
@@ -726,7 +714,7 @@ QUY TẮC TRẢ LỜI:
 """
         try:
             future = _rag_executor.submit(generate_text, prompt)
-            res = future.result(timeout=1.2)
+            res = future.result(timeout=10.0)
             if res and res.strip():
                 return res.strip()
         except Exception:

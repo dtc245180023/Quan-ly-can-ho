@@ -15,7 +15,6 @@ import {
   Lock,
   Sliders,
   Loader2,
-  Zap,
 } from 'lucide-react';
 import { Button } from '../components/common/Button';
 import { Modal } from '../components/common/Modal';
@@ -28,10 +27,6 @@ import {
 import { AIBotLogo } from '../components/common/AIBotLogo';
 import { IDocumentChunk } from '../types';
 import { useToast } from '../hooks/useToast';
-import {
-  normalizeQuestion,
-  initializeChatbotCache,
-} from '../modules/rag_chatbot/utils/chatbotCache';
 
 export const RagChatbotPage: React.FC = () => {
   const [messages, setMessages] = useState<
@@ -40,7 +35,6 @@ export const RagChatbotPage: React.FC = () => {
       text: string;
       matchedChunks?: IDocumentChunk[];
       confidence?: number;
-      isCached?: boolean;
     }[]
   >([
     {
@@ -51,7 +45,6 @@ export const RagChatbotPage: React.FC = () => {
       sender: 'ai',
       text: 'Chào anh Lê Hoàng Nam (Căn P.402 – Dwell)! Căn cứ theo Điều 8.2 Quy chế Vận chuyển & Sử dụng thang máy hàng Dwell 2024, BQL xin phản hồi thông tin chi tiết như sau:\n\n1. Thời gian đăng ký: Cần nộp phiếu đăng ký trước ít nhất 24 giờ (Hạn chót trước 17:00 Thứ Sáu tuần này qua Cổng Cư Dân để BQL bố trí bảo vệ ốp lót thang máy).\n\n2. Khung giờ cho phép ngày cuối tuần (Thứ 7 & Chủ Nhật):\n   • Buổi sáng: 08:30 – 11:30\n   • Buổi chiều: 14:00 – 17:30\n   *Lưu ý: Nghiêm cấm vận chuyển sau 18:00 và giờ nghỉ trưa (11:30 – 14:00) để đảm bảo không gian yên tĩnh.\n\n3. Ký quỹ bảo vệ thang hàng: 1.000.000 VNĐ (Hoàn trả ngay vào tài khoản cư dân trong vòng 02 giờ sau khi kết thúc vận chuyển và nghiệm thu cabin thang máy không trầy xước).',
       confidence: 0.942,
-      isCached: true,
       matchedChunks: [
         {
           id: 1,
@@ -74,8 +67,6 @@ export const RagChatbotPage: React.FC = () => {
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
 
-  // Client-side Cache lưu câu trả lời theo câu hỏi đã chuẩn hóa (bỏ dấu câu, viết thường)
-  const cacheRef = useRef<Map<string, any>>(initializeChatbotCache());
   const chatBottomRef = useRef<HTMLDivElement>(null);
 
   // New Chunk state
@@ -100,29 +91,7 @@ export const RagChatbotPage: React.FC = () => {
     setMessages((prev) => [...prev, { sender: 'user', text: q }]);
     setInputQuestion('');
 
-    // Chuẩn hóa câu hỏi: chữ thường, bỏ dấu câu, bỏ khoảng trắng thừa
-    const normKey = normalizeQuestion(q);
-
-    // Kiểm tra Client Cache trước: nếu có thì trả lời ngay trong 0ms
-    if (cacheRef.current.has(normKey)) {
-      const cached = cacheRef.current.get(normKey);
-      setMessages((prev) => [
-        ...prev,
-        {
-          sender: 'ai',
-          text: cached.text,
-          confidence: cached.confidence,
-          matchedChunks: cached.matchedChunks,
-          isCached: true,
-        },
-      ]);
-      if (cached.matchedChunks && cached.matchedChunks.length > 0) {
-        setActiveChunkPreview(cached.matchedChunks[0]);
-      }
-      return;
-    }
-
-    // Chưa có trong cache: hiển thị loading spinner / typing dots và gọi RAG backend
+    // Luôn gửi câu hỏi lên Backend để gọi Google Gemini AI thật sự
     setIsThinking(true);
     try {
       const res = await askRAG({ question: q }).unwrap();
@@ -133,20 +102,12 @@ export const RagChatbotPage: React.FC = () => {
         matchedChunks: res.matchedChunks,
       };
 
-      // Lưu kết quả vào Client Cache
-      cacheRef.current.set(normKey, {
-        text: res.answer,
-        confidence: res.confidence,
-        matchedChunks: res.matchedChunks,
-        isCached: true,
-      });
-
       setMessages((prev) => [...prev, aiResponse]);
       if (res.matchedChunks.length > 0) {
         setActiveChunkPreview(res.matchedChunks[0]);
       }
     } catch {
-      toast.error('Lỗi', 'Không thể truy vấn RAG lúc này');
+      toast.error('Lỗi', 'Không thể kết nối đến Trợ lý AI Gemini lúc này');
     } finally {
       setIsThinking(false);
     }
@@ -185,7 +146,7 @@ export const RagChatbotPage: React.FC = () => {
             Trợ Lý AI Tra Cứu Nội Quy Tòa Nhà
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            AI RAG tra cứu trực tiếp văn bản nội quy, trích xuất căn cứ pháp lý và giải đáp cư dân 24/7.
+            AI RAG kết nối Google Gemini AI tra cứu trực tiếp văn bản nội quy, trích xuất căn cứ pháp lý và giải đáp cư dân 24/7.
           </p>
         </div>
 
@@ -259,7 +220,7 @@ export const RagChatbotPage: React.FC = () => {
               </div>
             </div>
             <span className="text-[10px] font-mono text-white bg-white/20 px-2 py-0.5 rounded border border-white/30">
-              Claude-3.5 + Dense Embeddings
+              Google Gemini AI + Dense Embeddings
             </span>
           </div>
 
@@ -292,12 +253,6 @@ export const RagChatbotPage: React.FC = () => {
                         {m.matchedChunks[0].citation}
                       </span>
                       <div className="flex items-center gap-2">
-                        {m.isCached && (
-                          <span className="font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200/60 inline-flex items-center gap-1">
-                            <Zap className="w-2.5 h-2.5 fill-emerald-500 text-emerald-500" />
-                            0ms Cache
-                          </span>
-                        )}
                         <span className="text-slate-400">Cosine: {(m.confidence || 0.94).toFixed(3)}</span>
                       </div>
                     </div>
@@ -314,8 +269,8 @@ export const RagChatbotPage: React.FC = () => {
 
             {(isAsking || isThinking) && (
               <div className="flex gap-3 items-start text-xs text-slate-500 animate-in fade-in duration-200">
-                <div className="shrink-0 mt-0.5">
-                  <AIBotLogo size="sm" badge />
+                <div className="shrink-0 mt-0.5 animate-pulse">
+                  <AIBotLogo size="sm" badge showStatusDot statusColor="bg-sky-400 animate-ping" />
                 </div>
                 <div className="bg-white border border-slate-200/90 rounded-2xl px-4 py-3 rounded-bl-none shadow-soft flex items-center gap-3">
                   <div className="flex items-center gap-1.5 py-0.5">
@@ -326,7 +281,7 @@ export const RagChatbotPage: React.FC = () => {
                   <div className="h-3.5 w-px bg-slate-200" />
                   <span className="text-xs font-medium text-slate-600 flex items-center gap-1.5">
                     <Loader2 className="w-3.5 h-3.5 text-brand-600 animate-spin" />
-                    Đang đối soát văn bản RAG & trích xuất điều khoản...
+                    Trợ lý AI đang tra cứu & suy luận cùng Gemini...
                   </span>
                 </div>
               </div>
