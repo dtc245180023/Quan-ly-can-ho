@@ -907,9 +907,11 @@ def create_alert_draft(
             True
     }
 # =========================================================
+# =========================================================
 # AI GỢI Ý CĂN HỘ THÔNG MINH (MULTI-CRITERIA MATCHING ENGINE)
 # =========================================================
 import unicodedata
+import concurrent.futures
 
 
 def _normalize_str(s: str | None) -> str:
@@ -930,31 +932,38 @@ def _calculate_apartment_match(
 ) -> tuple[int, dict]:
     """
     Thuật toán chấm điểm Match Score thông minh đa tiêu chí:
-    - Khớp số phòng ngủ: +40 điểm (chênh lệch 1 phòng: +20 điểm, lệch >= 2: 0 điểm, không chọn: +30 điểm)
-    - Khớp hướng view: +30 điểm (không phân biệt hoa thường/dấu, không khớp: +10 điểm, không chọn: +25 điểm)
-    - Trong ngân sách: +20 đến +30 điểm (theo tỷ lệ tiết kiệm)
-    - Điểm tối đa chuẩn hóa trong khoảng 70 - 99%
+    - Tiêu chí Số phòng ngủ (bedrooms) là TIÊU CHÍ QUAN TRỌNG NHẤT:
+      * Khớp chính xác apartment.bedrooms == req.bedrooms: +50 điểm.
+      * Lệch số phòng ngủ: bị trừ điểm (-20 điểm).
+      * Nhờ đó: Chọn 2 PN thì B602 (2 PN) BẮT BUỘC đạt Top 1 (95-99%).
+      * Chọn 1 PN thì B601 lên Top 1. Chọn 3 PN thì A402 lên Top 1.
+      * Tuyệt đối không để căn 1 PN vượt lên căn 2 PN chỉ vì hướng ban công!
+    - Khớp hướng view: +5 đến +25 điểm (khớp: +25, không khớp: +5, không chọn: +20).
+    - Trong ngân sách: +20 đến +25 điểm (theo tỷ lệ tiết kiệm).
+    - Match score tổng:
+      * Khớp số phòng ngủ & trong ngân sách: đạt mức xuất sắc 95 - 99%.
+      * Lệch số phòng ngủ: tối đa chỉ 50 - 68%, không bao giờ vượt căn đúng số phòng ngủ.
     """
     apt_bedrooms = getattr(apartment, "bedrooms", 1) or 1
     apt_view = getattr(apartment, "view_direction", "Đông Nam") or "Đông Nam"
     apt_price = float(apartment.price or 0)
     max_budget = float(req.max_budget or 0)
 
-    # 1. Điểm phòng ngủ (tối đa 40 điểm)
-    score_bedrooms = 30
+    # 1. Điểm phòng ngủ: TIÊU CHÍ QUAN TRỌNG NHẤT
     is_bedroom_match = False
     if req.bedrooms is not None:
-        diff = abs(apt_bedrooms - req.bedrooms)
-        if diff == 0:
-            score_bedrooms = 40
+        if apt_bedrooms == req.bedrooms:
+            score_bedrooms = 50
             is_bedroom_match = True
-        elif diff == 1:
-            score_bedrooms = 20
         else:
-            score_bedrooms = 0
+            diff = abs(apt_bedrooms - req.bedrooms)
+            score_bedrooms = -20 - (diff * 10)
+            is_bedroom_match = False
+    else:
+        score_bedrooms = 40
+        is_bedroom_match = True
 
-    # 2. Điểm hướng view (tối đa 30 điểm)
-    score_view = 25
+    # 2. Điểm hướng view (Tối đa 25 điểm)
     is_view_match = False
     if req.view and req.view.strip():
         req_v = req.view.strip().lower()
@@ -963,28 +972,43 @@ def _calculate_apartment_match(
         apt_norm = _normalize_str(apt_view)
 
         if req_v in apt_v or apt_v in req_v or req_norm in apt_norm or apt_norm in req_norm:
-            score_view = 30
+            score_view = 25
             is_view_match = True
         else:
-            score_view = 10
+            score_view = 5
+            is_view_match = False
+    else:
+        score_view = 20
+        is_view_match = True
 
-    # 3. Điểm ngân sách (tối đa 30 điểm)
+    # 3. Điểm ngân sách (Tối đa 25 điểm)
     is_in_budget = apt_price <= max_budget
     if is_in_budget:
         savings = max_budget - apt_price
         savings_ratio = savings / max_budget if max_budget > 0 else 0
-        score_budget = 25 + min(5, int(savings_ratio * 15))
+        score_budget = 20 + min(5, int(savings_ratio * 10))
     else:
         over = apt_price - max_budget
         over_ratio = over / max_budget if max_budget > 0 else 1
-        score_budget = max(5, 20 - int(over_ratio * 25))
+        score_budget = max(0, 15 - int(over_ratio * 20))
 
-    total = score_bedrooms + score_view + score_budget
-    match_score = max(70, min(99, total))
-
-    # Nếu khớp cả phòng ngủ, view và trong ngân sách, đảm bảo điểm đạt mức xuất sắc >= 95
-    if is_bedroom_match and (is_view_match or not req.view) and is_in_budget:
-        match_score = max(95, match_score)
+    # 4. Tính toán Match Score tổng chuẩn hóa
+    if is_bedroom_match:
+        if is_in_budget:
+            # Chuẩn hóa trong dải 95 - 99%
+            base = 95
+            if is_view_match:
+                base += 3  # 98%
+            if score_budget >= 23:
+                base += 1  # 99%
+            match_score = min(99, max(95, base))
+        else:
+            # Đúng số phòng ngủ nhưng vượt ngân sách
+            match_score = max(80, min(94, 75 + score_budget + (5 if is_view_match else 0)))
+    else:
+        # Lệch số phòng ngủ: Bị trừ điểm (-20), điểm tối đa chỉ đạt 50-68%
+        raw = score_bedrooms + score_view + score_budget
+        match_score = max(40, min(68, 50 + raw))
 
     details = {
         "is_bedroom_match": is_bedroom_match,
@@ -1004,7 +1028,7 @@ def _generate_personalized_reason(
     match_score: int,
     details: dict
 ) -> str:
-    """Sinh lý do đề xuất cá nhân hóa tự nhiên nêu bật chính xác các tiêu chí người dùng quan tâm"""
+    """Sinh lý do đề xuất cá nhân hóa tự nhiên nêu bật chính xác các tiêu chí người dùng quan tâm (Fallback thông minh)"""
     room = apartment.room_number
     area = float(apartment.area_sqm or 0)
     bedrooms = getattr(apartment, "bedrooms", 1) or 1
@@ -1056,6 +1080,102 @@ def _generate_personalized_reason(
     return " ".join(parts)
 
 
+def _generate_ai_recommendation_reasons(
+    candidates_data: list[dict],
+    req: ApartmentRecommendRequest,
+    timeout_sec: float = 3.0
+) -> dict[str, str]:
+    """
+    Tích hợp gọi Gemini AI thật (model gemini-3.5-flash-lite) để phân tích
+    và sinh nhận định AI chuyên sâu, thông minh cho các căn hộ phù hợp nhất.
+    Có try/except và fallback thông minh nếu Gemini timeout > 3s hoặc gặp sự cố mạng.
+    """
+    if not candidates_data:
+        return {}
+
+    from app.services.ai_service import get_gemini_client
+    from google.genai import types
+
+    budget_fmt = f"{req.max_budget:,.0f} đ".replace(",", ".")
+    pref_lines = [
+        f"- Ngân sách tối đa: {budget_fmt}/tháng",
+        f"- Số phòng ngủ mong muốn: {req.bedrooms} phòng ngủ" if req.bedrooms else "- Số phòng ngủ: Linh hoạt",
+        f"- Hướng ban công/view mong muốn: {req.view}" if req.view else "- Hướng view: Linh hoạt",
+        f"- Số người ở: {req.occupants} người"
+    ]
+    pref_str = "\n".join(pref_lines)
+
+    apt_lines = []
+    for c in candidates_data:
+        room = c["room_number"]
+        price_fmt = f"{float(c['price']):,.0f} đ".replace(",", ".")
+        beds = c["bedrooms"]
+        baths = c["bathrooms"]
+        area = float(c["area_sqm"])
+        view = c["view_direction"]
+        amenities_str = ", ".join(c["amenities"][:4]) if c.get("amenities") else "Tiêu chuẩn"
+        apt_lines.append(
+            f"[{room}]: {beds} phòng ngủ, {baths} WC, diện tích {area:.0f}m², giá thuê {price_fmt}/tháng, view {view}, tiện ích: {amenities_str}"
+        )
+    apt_str = "\n".join(apt_lines)
+
+    prompt = f"""System: Bạn là chuyên gia tư vấn bất động sản AI cao cấp của hệ thống Dwell Living.
+Nhiệm vụ: Dựa trên tiêu chí tìm kiếm của khách hàng và danh sách căn hộ đề xuất, hãy viết đúng 1-2 câu nhận định tư vấn chuyên nghiệp, ngắn gọn, súc tích và thuyết phục cho mỗi căn hộ. Nêu bật lý do vì sao căn hộ đó phù hợp với nhu cầu của khách.
+
+TIÊU CHÍ KHÁCH HÀNG:
+{pref_str}
+
+DANH SÁCH CĂN HỘ ĐỀ XUẤT:
+{apt_str}
+
+YÊU CẦU ĐỊNH DẠNG ĐẦU RA:
+Trả về theo từng dòng cho mỗi căn hộ theo đúng định dạng:
+[MÃ_CĂN]: <Lý do tư vấn ngắn gọn, thuyết phục>
+Ví dụ:
+[B602]: Căn hộ đáp ứng hoàn hảo tiêu chí 2 phòng ngủ của bạn với không gian 58m² khoáng đạt view Công Viên xanh mát, mức giá 14.500.000 đ/tháng nằm trọn trong ngân sách.
+"""
+
+    def _call_gemini():
+        client = get_gemini_client()
+        for model_name in ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]:
+            try:
+                resp = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        max_output_tokens=300,
+                        temperature=0.2
+                    )
+                )
+                if resp.text and resp.text.strip():
+                    return resp.text.strip()
+            except Exception:
+                continue
+        raise RuntimeError("Không gọi được Gemini API")
+
+    result_map = {}
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(_call_gemini)
+    try:
+        raw_text = future.result(timeout=timeout_sec)
+        executor.shutdown(wait=False)
+
+        for line in raw_text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            match = re.search(r"\[([A-Za-z0-9_-]+)\]\s*:\s*(.+)", line)
+            if match:
+                room_code = match.group(1).strip()
+                reason_text = match.group(2).strip()
+                result_map[room_code] = reason_text
+    except Exception:
+        executor.shutdown(wait=False, cancel_futures=True)
+        result_map = {}
+
+    return result_map
+
+
 @router.post(
     "/apartments/recommend",
     response_model=list[ApartmentRecommendResponse]
@@ -1101,32 +1221,8 @@ def recommend_apartments(
             Apartment.building_id == data.building_id
         )
 
-    # Lọc sơ bộ ưu tiên căn trong ngân sách và đủ sức chứa
-    query = base_query.filter(
-        Apartment.price <= data.max_budget,
-        Apartment.max_occupants >= data.occupants
-    )
-
-    if data.min_area is not None:
-        query = query.filter(
-            Apartment.area_sqm >= data.min_area
-        )
-
-    apartments = query.all()
-
-    # Nới lỏng điều kiện số người và diện tích nếu không có căn phù hợp
-    if not apartments:
-        relaxed_query = base_query.filter(
-            Apartment.price <= data.max_budget
-        )
-        apartments = relaxed_query.all()
-
-    # Nếu ngân sách đề xuất thấp hơn toàn bộ căn có sẵn, lấy các căn có sẵn để chấm điểm fallback
-    if not apartments:
-        apartments = base_query.all()
-
-    # Không có căn hộ nào sẵn sàng
-    if not apartments:
+    all_available = base_query.all()
+    if not all_available:
         return []
 
     # ==========================================
@@ -1140,7 +1236,7 @@ def recommend_apartments(
 
     candidates = []
 
-    for apartment in apartments:
+    for apartment in all_available:
         amenity_rows = (
             db.query(Amenity)
             .filter(Amenity.apartment_id == apartment.id)
@@ -1160,8 +1256,8 @@ def recommend_apartments(
         })
 
     # Nếu lọc tiện ích làm mất toàn bộ candidates, giữ lại danh sách căn hộ kèm tiện ích thực tế
-    if not candidates and apartments:
-        for apartment in apartments:
+    if not candidates and all_available:
+        for apartment in all_available:
             amenity_rows = (
                 db.query(Amenity)
                 .filter(Amenity.apartment_id == apartment.id)
@@ -1176,7 +1272,20 @@ def recommend_apartments(
         return []
 
     # ==========================================
-    # 4. Chấm điểm Match Score & Sinh lý do cá nhân hóa
+    # 3b. Tiêu chí Số phòng ngủ là TIÊU CHÍ QUAN TRỌNG NHẤT:
+    # Nếu có căn hộ khớp đúng số phòng ngủ, chỉ lấy các căn khớp số phòng ngủ
+    # hoặc ưu tiên tuyệt đối các căn đó lên hàng đầu
+    # ==========================================
+    if data.bedrooms is not None:
+        exact_bedroom_candidates = [
+            c for c in candidates
+            if getattr(c["apartment"], "bedrooms", 1) == data.bedrooms
+        ]
+        if exact_bedroom_candidates:
+            candidates = exact_bedroom_candidates
+
+    # ==========================================
+    # 4. Chấm điểm Match Score đa tiêu chí
     # ==========================================
     scored_candidates = []
     for item in candidates:
@@ -1184,13 +1293,6 @@ def recommend_apartments(
         amenity_names = item["amenities"]
 
         match_score, details = _calculate_apartment_match(apt, data)
-        reason = _generate_personalized_reason(
-            apartment=apt,
-            req=data,
-            amenities=amenity_names,
-            match_score=match_score,
-            details=details
-        )
 
         scored_candidates.append({
             "apartment_id": apt.id,
@@ -1203,18 +1305,55 @@ def recommend_apartments(
             "bathrooms": getattr(apt, "bathrooms", 1) or 1,
             "view_direction": getattr(apt, "view_direction", "Đông Nam") or "Đông Nam",
             "amenities": amenity_names,
-            "reason": reason,
-            "match_score": match_score
+            "match_score": match_score,
+            "details": details,
+            "apartment_obj": apt
         })
 
-    # Sắp xếp kết quả theo match_score giảm dần, ưu tiên căn phù hợp nhất lên đầu
+    # Sắp xếp kết quả: Ưu tiên căn đúng số phòng ngủ và match_score cao nhất
     scored_candidates.sort(
-        key=lambda x: (x["match_score"], -float(x["price"])),
+        key=lambda x: (x["details"]["is_bedroom_match"], x["match_score"], -float(x["price"])),
         reverse=True
     )
 
-    # Giới hạn tối đa 5 căn xuất sắc nhất
-    return scored_candidates[:5]
+    top_candidates = scored_candidates[:5]
+
+    # ==========================================
+    # 5. Tích hợp Gemini AI thật sự (gemini-3.5-flash-lite)
+    # để phân tích và sinh nhận định AI chuyên sâu, thông minh
+    # ==========================================
+    ai_reasons_map = _generate_ai_recommendation_reasons(top_candidates, data, timeout_sec=3.0)
+
+    results = []
+    for c in top_candidates:
+        room_no = c["room_number"]
+        if room_no in ai_reasons_map and ai_reasons_map[room_no]:
+            final_reason = ai_reasons_map[room_no]
+        else:
+            final_reason = _generate_personalized_reason(
+                apartment=c["apartment_obj"],
+                req=data,
+                amenities=c["amenities"],
+                match_score=c["match_score"],
+                details=c["details"]
+            )
+
+        results.append({
+            "apartment_id": c["apartment_id"],
+            "building_id": c["building_id"],
+            "room_number": c["room_number"],
+            "price": c["price"],
+            "area_sqm": c["area_sqm"],
+            "max_occupants": c["max_occupants"],
+            "bedrooms": c["bedrooms"],
+            "bathrooms": c["bathrooms"],
+            "view_direction": c["view_direction"],
+            "amenities": c["amenities"],
+            "reason": final_reason,
+            "match_score": c["match_score"]
+        })
+
+    return results
 
 
 # =========================================================

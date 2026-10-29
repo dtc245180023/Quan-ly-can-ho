@@ -11,17 +11,22 @@ from docx import Document
 from app.core.config import settings
 
 
-def get_gemini_client():
+_cached_gemini_client = None
 
+
+def get_gemini_client():
+    global _cached_gemini_client
     if not settings.gemini_api_key or not settings.gemini_api_key.strip():
         raise RuntimeError(
             "Chưa cấu hình GEMINI_API_KEY trong .env"
         )
 
-    return genai.Client(
-        api_key=settings.gemini_api_key.strip(),
-        http_options=types.HttpOptions(timeout=15000)
-    )
+    if _cached_gemini_client is None:
+        _cached_gemini_client = genai.Client(
+            api_key=settings.gemini_api_key.strip(),
+            http_options=types.HttpOptions(timeout=10000)
+        )
+    return _cached_gemini_client
 
 
 def _generate_fallback_embedding(text: str, dim: int = 768) -> list[float]:
