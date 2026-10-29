@@ -906,6 +906,156 @@ def create_alert_draft(
         "review_required":
             True
     }
+# =========================================================
+# AI GỢI Ý CĂN HỘ THÔNG MINH (MULTI-CRITERIA MATCHING ENGINE)
+# =========================================================
+import unicodedata
+
+
+def _normalize_str(s: str | None) -> str:
+    """Chuẩn hóa chuỗi tiếng Việt (chuyển chữ thường, bỏ dấu) để so khớp linh hoạt"""
+    if not s:
+        return ""
+    s = s.strip().lower()
+    s_norm = "".join(
+        c for c in unicodedata.normalize("NFD", s)
+        if unicodedata.category(c) != "Mn"
+    ).replace("đ", "d").replace("Đ", "d")
+    return s_norm
+
+
+def _calculate_apartment_match(
+    apartment: Apartment,
+    req: ApartmentRecommendRequest
+) -> tuple[int, dict]:
+    """
+    Thuật toán chấm điểm Match Score thông minh đa tiêu chí:
+    - Khớp số phòng ngủ: +40 điểm (chênh lệch 1 phòng: +20 điểm, lệch >= 2: 0 điểm, không chọn: +30 điểm)
+    - Khớp hướng view: +30 điểm (không phân biệt hoa thường/dấu, không khớp: +10 điểm, không chọn: +25 điểm)
+    - Trong ngân sách: +20 đến +30 điểm (theo tỷ lệ tiết kiệm)
+    - Điểm tối đa chuẩn hóa trong khoảng 70 - 99%
+    """
+    apt_bedrooms = getattr(apartment, "bedrooms", 1) or 1
+    apt_view = getattr(apartment, "view_direction", "Đông Nam") or "Đông Nam"
+    apt_price = float(apartment.price or 0)
+    max_budget = float(req.max_budget or 0)
+
+    # 1. Điểm phòng ngủ (tối đa 40 điểm)
+    score_bedrooms = 30
+    is_bedroom_match = False
+    if req.bedrooms is not None:
+        diff = abs(apt_bedrooms - req.bedrooms)
+        if diff == 0:
+            score_bedrooms = 40
+            is_bedroom_match = True
+        elif diff == 1:
+            score_bedrooms = 20
+        else:
+            score_bedrooms = 0
+
+    # 2. Điểm hướng view (tối đa 30 điểm)
+    score_view = 25
+    is_view_match = False
+    if req.view and req.view.strip():
+        req_v = req.view.strip().lower()
+        apt_v = apt_view.strip().lower()
+        req_norm = _normalize_str(req.view)
+        apt_norm = _normalize_str(apt_view)
+
+        if req_v in apt_v or apt_v in req_v or req_norm in apt_norm or apt_norm in req_norm:
+            score_view = 30
+            is_view_match = True
+        else:
+            score_view = 10
+
+    # 3. Điểm ngân sách (tối đa 30 điểm)
+    is_in_budget = apt_price <= max_budget
+    if is_in_budget:
+        savings = max_budget - apt_price
+        savings_ratio = savings / max_budget if max_budget > 0 else 0
+        score_budget = 25 + min(5, int(savings_ratio * 15))
+    else:
+        over = apt_price - max_budget
+        over_ratio = over / max_budget if max_budget > 0 else 1
+        score_budget = max(5, 20 - int(over_ratio * 25))
+
+    total = score_bedrooms + score_view + score_budget
+    match_score = max(70, min(99, total))
+
+    # Nếu khớp cả phòng ngủ, view và trong ngân sách, đảm bảo điểm đạt mức xuất sắc >= 95
+    if is_bedroom_match and (is_view_match or not req.view) and is_in_budget:
+        match_score = max(95, match_score)
+
+    details = {
+        "is_bedroom_match": is_bedroom_match,
+        "is_view_match": is_view_match,
+        "is_in_budget": is_in_budget,
+        "score_bedrooms": score_bedrooms,
+        "score_view": score_view,
+        "score_budget": score_budget,
+    }
+    return match_score, details
+
+
+def _generate_personalized_reason(
+    apartment: Apartment,
+    req: ApartmentRecommendRequest,
+    amenities: list[str],
+    match_score: int,
+    details: dict
+) -> str:
+    """Sinh lý do đề xuất cá nhân hóa tự nhiên nêu bật chính xác các tiêu chí người dùng quan tâm"""
+    room = apartment.room_number
+    area = float(apartment.area_sqm or 0)
+    bedrooms = getattr(apartment, "bedrooms", 1) or 1
+    bathrooms = getattr(apartment, "bathrooms", 1) or 1
+    view = getattr(apartment, "view_direction", "Đông Nam") or "Đông Nam"
+    price_val = float(apartment.price or 0)
+    budget_val = float(req.max_budget or 0)
+
+    price_str = f"{price_val:,.0f} đ/tháng".replace(",", ".")
+    parts = []
+
+    # 1. Bố cục & Phòng ngủ
+    if req.bedrooms is not None:
+        if details.get("is_bedroom_match"):
+            parts.append(f"Căn {room} ({area:.0f}m²) đáp ứng hoàn hảo yêu cầu với {bedrooms} phòng ngủ riêng tư và {bathrooms} WC tiện nghi.")
+        else:
+            diff = abs(bedrooms - req.bedrooms)
+            parts.append(f"Căn {room} ({area:.0f}m²) thiết kế hiện đại gồm {bedrooms} phòng ngủ và {bathrooms} WC (chênh lệch {diff} PN so với mong muốn).")
+    else:
+        parts.append(f"Căn {room} ({area:.0f}m²) bố trí không gian mở gồm {bedrooms} phòng ngủ và {bathrooms} WC thông thoáng.")
+
+    # 2. Hướng ban công / view
+    if req.view and req.view.strip():
+        if details.get("is_view_match"):
+            parts.append(f"Ban công hướng {view} ngập tràn ánh sáng tự nhiên đúng tiêu chí yêu cầu.")
+        else:
+            parts.append(f"Ban công sở hữu tầm nhìn hướng {view} khoáng đạt.")
+    else:
+        parts.append(f"Tầm nhìn hướng {view} đón gió mát mẻ quanh năm.")
+
+    # 3. Ngân sách & Tiết kiệm
+    if price_val <= budget_val:
+        saved_val = budget_val - price_val
+        if saved_val > 0:
+            saved_str = f"{saved_val:,.0f} đ".replace(",", ".")
+            parts.append(f"Mức giá thuê {price_str}, tối ưu tiết kiệm {saved_str} so với ngân sách dự kiến.")
+        else:
+            parts.append(f"Mức giá thuê {price_str}, hoàn toàn vừa vặn với ngân sách của bạn.")
+    else:
+        over_val = price_val - budget_val
+        over_str = f"{over_val:,.0f} đ".replace(",", ".")
+        parts.append(f"Giá thuê {price_str} (vượt nhẹ {over_str} so với ngân sách ban đầu nhưng sở hữu không gian và công năng vượt trội).")
+
+    # 4. Tiện ích đi kèm
+    if amenities:
+        top_amenities = ", ".join(amenities[:3])
+        parts.append(f"Trang bị sẵn tiện ích: {top_amenities}.")
+
+    return " ".join(parts)
+
+
 @router.post(
     "/apartments/recommend",
     response_model=list[ApartmentRecommendResponse]
@@ -942,10 +1092,17 @@ def recommend_apartments(
     # ==========================================
     # 2. Backend lọc căn hộ thật trong DB
     # ==========================================
-    query = db.query(
-        Apartment
-    ).filter(
-        Apartment.status == "AVAILABLE",
+    base_query = db.query(Apartment).filter(
+        Apartment.status == "AVAILABLE"
+    )
+
+    if data.building_id is not None:
+        base_query = base_query.filter(
+            Apartment.building_id == data.building_id
+        )
+
+    # Lọc sơ bộ ưu tiên căn trong ngân sách và đủ sức chứa
+    query = base_query.filter(
         Apartment.price <= data.max_budget,
         Apartment.max_occupants >= data.occupants
     )
@@ -955,54 +1112,22 @@ def recommend_apartments(
             Apartment.area_sqm >= data.min_area
         )
 
-    if data.building_id is not None:
-        query = query.filter(
-            Apartment.building_id
-            == data.building_id
-        )
+    apartments = query.all()
 
-    apartments = (
-        query
-        .order_by(
-            Apartment.price.asc(),
-            Apartment.area_sqm.desc()
-        )
-        .all()
-    )
-
-    # Nới lỏng điều kiện số người và diện tích nếu tiêu chí quá khắt khe không tìm thấy căn nào
+    # Nới lỏng điều kiện số người và diện tích nếu không có căn phù hợp
     if not apartments:
-        relaxed_query = db.query(Apartment).filter(
-            Apartment.status == "AVAILABLE",
+        relaxed_query = base_query.filter(
             Apartment.price <= data.max_budget
         )
-        if data.building_id is not None:
-            relaxed_query = relaxed_query.filter(Apartment.building_id == data.building_id)
-        apartments = (
-            relaxed_query
-            .order_by(
-                Apartment.price.asc(),
-                Apartment.area_sqm.desc()
-            )
-            .all()
-        )
+        apartments = relaxed_query.all()
 
-    # Nếu ngân sách đề xuất thấp hơn toàn bộ căn có sẵn, lấy các căn rẻ nhất hiện có để đề xuất
+    # Nếu ngân sách đề xuất thấp hơn toàn bộ căn có sẵn, lấy các căn có sẵn để chấm điểm fallback
     if not apartments:
-        fallback_query = db.query(Apartment).filter(
-            Apartment.status == "AVAILABLE"
-        )
-        if data.building_id is not None:
-            fallback_query = fallback_query.filter(Apartment.building_id == data.building_id)
-        apartments = (
-            fallback_query
-            .order_by(
-                Apartment.price.asc(),
-                Apartment.area_sqm.desc()
-            )
-            .limit(5)
-            .all()
-        )
+        apartments = base_query.all()
+
+    # Không có căn hộ nào sẵn sàng
+    if not apartments:
+        return []
 
     # ==========================================
     # 3. Chuẩn hóa tiện ích khách yêu cầu
@@ -1016,28 +1141,15 @@ def recommend_apartments(
     candidates = []
 
     for apartment in apartments:
-
         amenity_rows = (
             db.query(Amenity)
-            .filter(
-                Amenity.apartment_id
-                == apartment.id
-            )
+            .filter(Amenity.apartment_id == apartment.id)
             .all()
         )
-
-        amenity_names = [
-            item.name
-            for item in amenity_rows
-        ]
-
-        apartment_amenities = {
-            item.lower()
-            for item in amenity_names
-        }
+        amenity_names = [item.name for item in amenity_rows]
+        apartment_amenities = {item.lower() for item in amenity_names}
 
         # Nếu khách yêu cầu tiện ích, căn hộ phải có đủ
-        # Hỗ trợ tìm kiếm tiện ích linh hoạt (matching cụm từ, ví dụ "điều hòa" khớp "điều hòa daikin inverter")
         if required_amenities:
             if not all(any(req in am for am in apartment_amenities) for req in required_amenities):
                 continue
@@ -1047,7 +1159,7 @@ def recommend_apartments(
             "amenities": amenity_names
         })
 
-    # Nếu lọc tiện ích làm mất toàn bộ candidates, giữ lại danh sách căn hộ kèm tiện ích thực tế của chúng
+    # Nếu lọc tiện ích làm mất toàn bộ candidates, giữ lại danh sách căn hộ kèm tiện ích thực tế
     if not candidates and apartments:
         for apartment in apartments:
             amenity_rows = (
@@ -1060,79 +1172,49 @@ def recommend_apartments(
                 "amenities": [item.name for item in amenity_rows]
             })
 
-    # Không có căn phù hợp
     if not candidates:
         return []
 
-    # Chỉ tư vấn tối đa 5 căn
-    candidates = candidates[:5]
-
-    result = []
-
     # ==========================================
-    # 4. Tạo lý do gợi ý chất lượng cao tức thì (0.001s), không lặp gọi LLM tuần tự
+    # 4. Chấm điểm Match Score & Sinh lý do cá nhân hóa
     # ==========================================
-    templates = [
-        "Căn {room} ({area}m²{view}) tối ưu chi phí với giá {price}/tháng{saved}{amenities}, phù hợp tiêu chuẩn cho {occupants} người ở.",
-        "Phòng {room} sở hữu diện tích rộng rãi {area}m²{view} trong tầm giá {price}/tháng{saved}{amenities}, không gian sống thoáng mát và hiện đại.",
-        "Lựa chọn lý tưởng tại căn {room}: Giá thuê {price}/tháng{saved}, diện tích {area}m²{view} bố trí khoa học{amenities}, sẵn sàng dọn vào ở ngay.",
-        "Căn hộ {room} đáp ứng hoàn hảo nhu cầu với mức giá {price}/tháng{view}{amenities}, sức chứa tối đa {occupants} người sinh hoạt thoải mái.",
-        "Căn {room} có chi phí thuê hợp lý {price}/tháng{saved}, không gian {area}m²{view} tiện ích đầy đủ{amenities}, bảo đảm trọn vẹn chất lượng sống."
-    ]
-
-    for idx, item in enumerate(candidates):
-
-        apartment = item["apartment"]
+    scored_candidates = []
+    for item in candidates:
+        apt = item["apartment"]
         amenity_names = item["amenities"]
 
-        price_val = float(apartment.price or 0)
-        budget_val = float(data.max_budget or 0)
-        saved_val = budget_val - price_val
-        price_str = f"{price_val:,.0f} đ".replace(",", ".")
-        saved_str = f" (tiết kiệm {saved_val:,.0f} đ so với ngân sách)".replace(",", ".") if saved_val > 0 else ""
-        amenities_str = f", trang bị {', '.join(amenity_names[:3])}" if amenity_names else ""
-
-        view_dir = getattr(apartment, "view_direction", None) or "Đông Nam"
-        view_str = f", view {view_dir}" if view_dir else ""
-
-        template = templates[idx % len(templates)]
-        reason = template.format(
-            room=apartment.room_number,
-            area=apartment.area_sqm,
-            view=view_str,
-            price=price_str,
-            saved=saved_str,
-            amenities=amenities_str,
-            occupants=apartment.max_occupants
+        match_score, details = _calculate_apartment_match(apt, data)
+        reason = _generate_personalized_reason(
+            apartment=apt,
+            req=data,
+            amenities=amenity_names,
+            match_score=match_score,
+            details=details
         )
 
-        result.append({
-            "apartment_id":
-                apartment.id,
-
-            "building_id":
-                apartment.building_id,
-
-            "room_number":
-                apartment.room_number,
-
-            "price":
-                apartment.price,
-
-            "area_sqm":
-                apartment.area_sqm,
-
-            "max_occupants":
-                apartment.max_occupants,
-
-            "amenities":
-                amenity_names,
-
-            "reason":
-                reason
+        scored_candidates.append({
+            "apartment_id": apt.id,
+            "building_id": apt.building_id,
+            "room_number": apt.room_number,
+            "price": apt.price,
+            "area_sqm": apt.area_sqm,
+            "max_occupants": apt.max_occupants,
+            "bedrooms": getattr(apt, "bedrooms", 1) or 1,
+            "bathrooms": getattr(apt, "bathrooms", 1) or 1,
+            "view_direction": getattr(apt, "view_direction", "Đông Nam") or "Đông Nam",
+            "amenities": amenity_names,
+            "reason": reason,
+            "match_score": match_score
         })
 
-    return result
+    # Sắp xếp kết quả theo match_score giảm dần, ưu tiên căn phù hợp nhất lên đầu
+    scored_candidates.sort(
+        key=lambda x: (x["match_score"], -float(x["price"])),
+        reverse=True
+    )
+
+    # Giới hạn tối đa 5 căn xuất sắc nhất
+    return scored_candidates[:5]
 
 
 # =========================================================

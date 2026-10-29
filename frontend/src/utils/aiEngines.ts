@@ -179,19 +179,83 @@ export interface IRoomPreference {
 }
 
 export const matchApartmentsWithAI = (apartments: IApartment[], pref: IRoomPreference) => {
-  return apartments
-    .filter(apt => apt.status === 'AVAILABLE')
+  return (apartments || [])
+    .filter(apt => apt && apt.status === 'AVAILABLE')
     .map(apt => {
-      let score = 70;
-      if (apt.price <= pref.budgetMax) score += 15;
-      if (pref.bedrooms && apt.bedrooms === pref.bedrooms) score += 10;
-      if (pref.buildingId && apt.buildingId === pref.buildingId) score += 5;
-      if (pref.view && apt.viewDirection.toLowerCase().includes(pref.view.toLowerCase())) score += 5;
-      const matchScore = Math.min(99, score);
+      let score = 20; // Điểm cơ sở
+
+      // 1. Khớp ngân sách (+20 điểm)
+      if (apt.price != null && apt.price <= pref.budgetMax) {
+        score += 20;
+        const savingsRatio = (pref.budgetMax - apt.price) / (pref.budgetMax || 1);
+        score += Math.min(4, Math.round(savingsRatio * 10)); // Thưởng tiết kiệm ngân sách (tối đa +4đ)
+      }
+
+      // 2. Khớp chính xác số phòng ngủ (+30 điểm)
+      if (pref.bedrooms != null) {
+        if (apt.bedrooms === pref.bedrooms) {
+          score += 30;
+        } else if (Math.abs(apt.bedrooms - pref.bedrooms) === 1) {
+          score += 10;
+        }
+      }
+
+      // 3. Khớp hướng view (+25 điểm)
+      const viewMatched = pref.view && apt.viewDirection && (
+        apt.viewDirection.toLowerCase().includes(pref.view.toLowerCase()) ||
+        pref.view.toLowerCase().includes(apt.viewDirection.toLowerCase())
+      );
+      if (viewMatched) {
+        score += 25;
+      } else if (!pref.view) {
+        score += 20;
+      } else {
+        score += 5;
+      }
+
+      if (pref.buildingId && apt.buildingId === pref.buildingId) {
+        score += 2;
+      }
+
+      const matchScore = Math.min(99, Math.max(50, score));
+
+      // Sinh aiHighlight cá nhân hóa nêu bật số phòng ngủ và hướng view
+      let bedroomHighlight = '';
+      if (pref.bedrooms) {
+        if (apt.bedrooms === pref.bedrooms) {
+          bedroomHighlight = `Thiết kế chuẩn ${apt.bedrooms} phòng ngủ riêng tư & ${apt.bathrooms || 1} WC tiện nghi`;
+        } else {
+          bedroomHighlight = `Bố trí không gian ${apt.bedrooms} phòng ngủ hiện đại`;
+        }
+      } else {
+        bedroomHighlight = `Căn hộ ${apt.bedrooms} phòng ngủ rộng rãi ${apt.areaSqm}m²`;
+      }
+
+      let viewHighlight = '';
+      if (viewMatched) {
+        viewHighlight = `ban công view ${apt.viewDirection} ngập tràn ánh sáng tự nhiên`;
+      } else if (apt.viewDirection) {
+        viewHighlight = `ban công hướng ${apt.viewDirection} thoáng mát`;
+      } else {
+        viewHighlight = `không gian thoáng đãng`;
+      }
+
+      let budgetHighlight = '';
+      if (apt.price <= pref.budgetMax) {
+        const savings = pref.budgetMax - apt.price;
+        budgetHighlight = savings > 0
+          ? `giá ${formatCurrency(apt.price)}/tháng (tiết kiệm ${formatCurrency(savings)})`
+          : `giá ${formatCurrency(apt.price)}/tháng tối ưu ngân sách`;
+      } else {
+        budgetHighlight = `giá ${formatCurrency(apt.price)}/tháng (vượt nhẹ ngân sách dự kiến)`;
+      }
+
+      const aiHighlight = `${bedroomHighlight}, ${viewHighlight}, ${budgetHighlight}.`;
+
       return {
         apartment: apt,
         matchScore,
-        aiHighlight: `Phù hợp ${matchScore}% với ngân sách ${formatCurrency(pref.budgetMax)} và tiêu chuẩn căn hộ cao cấp.`,
+        aiHighlight,
       };
     })
     .sort((a, b) => b.matchScore - a.matchScore);

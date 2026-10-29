@@ -110,13 +110,19 @@ export const buildingApi = baseApi.injectEndpoints({
         price: number;
         area_sqm: number;
         max_occupants: number;
+        bedrooms?: number;
+        bathrooms?: number;
+        view_direction?: string;
         amenities: string[];
         reason: string;
+        match_score?: number;
       }>,
       {
         max_budget: number;
         min_area?: number;
         occupants?: number;
+        bedrooms?: number;
+        view?: string;
         building_id?: number;
         amenities?: string[];
       }

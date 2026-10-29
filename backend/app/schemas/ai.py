@@ -30,6 +30,8 @@ class ApartmentRecommendRequest(BaseModel):
     max_budget: Decimal
     min_area: Decimal | None = None
     occupants: int = 1
+    bedrooms: int | None = None
+    view: str | None = None
     building_id: int | None = None
     amenities: list[str] = []
 
@@ -43,6 +45,10 @@ class ApartmentRecommendResponse(BaseModel):
     area_sqm: Decimal
 
     max_occupants: int
+    bedrooms: int = 1
+    bathrooms: int = 1
+    view_direction: str = "Đông Nam"
+    match_score: int = 95
 
     amenities: list[str]
 
